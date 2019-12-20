@@ -28,6 +28,7 @@ class Variable:
         self.description = description
         self.latex_symbol = latex_symbol
         self.location = None
+        self.displacement = None
 
     def assign(self, location):
         """
@@ -37,6 +38,7 @@ class Variable:
         :return: None.
         """
         self.location = location
+        self.displacement = self.location + self.length
 
 
 class Domain:

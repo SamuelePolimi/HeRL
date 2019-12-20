@@ -72,7 +72,8 @@ class RLTask:
             self._first_reset = False
             self.tot_episodes += 1
 
-        return self.environment.reset()
+        self.current_state = self.environment.reset()
+        return self.current_state
 
     def step(self, action):
         """
