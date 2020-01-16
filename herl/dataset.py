@@ -61,6 +61,9 @@ class Domain:
         for var in variables:
             self.add_variable(var)
 
+    def copy(self):
+        return Domain(*self.variables)
+
     def add_variable(self, variable):
         """
         Add a variable to the domain.
@@ -125,6 +128,36 @@ class Dataset:
         self.real_size = min(self.real_size + 1, self.max_size)
         self.pointer = (self.pointer + 1) % self.max_size
 
+    def notify_batch(self, **kargs):
+        """
+        Insert a new row in the dataset. Each kwarg represent a variable associated to the Variable.
+        E.g., for the iris dataset one should run
+        `self.notify(sepal_l=1., sepal_w=1., petal_l=0.2, petal_w=0.3)`
+        :param kargs: The value associated to the variable
+        :type kargs: np.ndarray
+        :return:
+        """
+        batch_size = None
+        end_size = None
+        init_size = None
+        for k, v in kargs.items():
+            if batch_size is None:
+                batch_size = v.shape[0]
+                if batch_size > self.max_size:
+                    raise Exception("The batch must have smaller dimension of the dataset.")
+                end_size = min(batch_size, self.max_size - self.real_size)
+                init_size = batch_size - end_size
+            if batch_size != v.shape[0]:
+                raise Exception("All the variable must have batch of same size!")
+            variable = self.domain.variable_dict[k]
+            self.memory[self.pointer:self.pointer+end_size,
+                variable.location:variable.location+variable.length] = v[:end_size, :]
+            if init_size != 0:
+                self.memory[0:init_size,
+                    variable.location:variable.location+variable.length] = v[-init_size:, :]
+        self.real_size = min(self.real_size + batch_size, self.max_size)
+        self.pointer = (self.pointer + batch_size) % self.max_size
+
     def get_minibatch(self, size=128):
         """
         Retrive a random (mini)batch of data.
@@ -185,6 +218,7 @@ class MLDataset:
         :param validation: Portion of the data should be in the validation set (between 0 and 1).
         :type validation: float
         """
+        self.domain = domain
         self.train_ds = Dataset(domain, n_max_row - int(n_max_row*validation))
         self.validation_ds = Dataset(domain, int(n_max_row*validation))
         self.validation = validation
