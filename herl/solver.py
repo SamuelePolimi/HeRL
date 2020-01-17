@@ -1,3 +1,5 @@
+import numpy as np
+
 from herl.dataset import MLDataset
 from herl.rl_interface import RLTask
 
@@ -17,7 +19,7 @@ class RLCollector:
         self.rl_task = rl_task
         self.policy = policy
 
-    def collect_samples(self, n_samples):
+    def collect_samples(self, n_samples, gamma_termination=False):
         """
         Collect n_samples
         :param n_samples:
@@ -33,6 +35,9 @@ class RLCollector:
                 row = self.rl_task.step(self.policy.get_action(state))
                 state = row["next_state"]
                 terminal = bool(row["terminal"][0])
+                if gamma_termination:
+                    if np.random.uniform() < 1. - self.rl_task.gamma:
+                        terminal = True
                 self.dataset.notify(**row)
                 if terminal:
                     print("hello")
@@ -43,7 +48,7 @@ class RLCollector:
             if i_tot_step >= n_samples:
                 break
 
-    def collect_rollouts(self, n_rollouts):
+    def collect_rollouts(self, n_rollouts, start_state=None, gamma_termination=False):
         """
         Collect n_rollouts
         :param n_rollouts:
@@ -53,11 +58,17 @@ class RLCollector:
         for _ in range(n_rollouts):
             i_step = 0
             terminal = False
-            state = self.rl_task.reset()
+            if start_state is None:
+                state = self.rl_task.reset()
+            else:
+                state = self.rl_task.reset(start_state)
             while i_step < self.rl_task.max_episode_length and not terminal:
                 row = self.rl_task.step(self.policy.get_action(state))
                 state = row["next_state"]
                 terminal = row["terminal"]
+                if gamma_termination:
+                    if np.random.uniform() < 1. - self.rl_task.gamma:
+                        terminal = True
                 self.dataset.notify(**row)
                 i_step += 1
 

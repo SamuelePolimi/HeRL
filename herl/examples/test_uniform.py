@@ -1,5 +1,6 @@
 import gym
 
+from herl.dataset import Dataset, MLDataset
 from herl.rl_interface import RLTask
 from herl.utils import env_from_gym, RandomPolicyPendulum, RLUniformCollectorPendulum
 
@@ -17,7 +18,6 @@ dataset = rl_task.get_empty_dataset()
 
 # An example of a rl policy just made up for testing purposed
 policy = RandomPolicyPendulum()
-
 # this class automatically collects the samples
 rl_collector = RLUniformCollectorPendulum(dataset, 10, 10, 2)
 # collect four episodes

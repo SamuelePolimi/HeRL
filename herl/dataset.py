@@ -1,7 +1,7 @@
 import numpy as np
 
 from herl.config import np_float
-
+from herl.dict_serializable import DictSerializable
 
 class Variable:
     """
@@ -89,8 +89,9 @@ class Domain:
         return self.variable_dict[name]
 
 
-class Dataset:
+class Dataset(DictSerializable):
 
+    load_fn = DictSerializable.get_numpy_load()
     """
     This class defines a generic dataset.
     """
@@ -112,6 +113,29 @@ class Dataset:
         self.real_size = 0
         self.pointer = 0
         self.indexes = np.arange(0, self.max_size)
+        DictSerializable.__init__(self, DictSerializable.get_numpy_save())
+
+    @staticmethod
+    def load_from_dict(**kwargs):
+        dataset = Dataset(kwargs["domain"], kwargs["memory"].shape[0])
+        dataset.memory = kwargs["memory"]
+        dataset.pointer = kwargs["pointer"]
+        dataset.real_size = kwargs["real_size"]
+        return dataset
+
+    @staticmethod
+    def load(file_name, domain):
+        """
+
+        :param file_name:
+        :param domain:
+        :return:
+        """
+        file = Dataset.load_fn(file_name)
+        return Dataset.load_from_dict(domain=domain, **file)
+
+    def _get_dict(self):
+        return dict(memory=self.memory, real_size=self.real_size, pointer=self.pointer)
 
     def notify(self, **kargs):
         """
@@ -197,12 +221,21 @@ class Dataset:
         """
         return self.real_size == self.max_size
 
+    def is_empty(self):
+        """
+        Is the database empty?
+        :return:
+        """
+        return self.real_size == 0
+
     def get_full(self):
         result = self.memory[:self.real_size, :]
         return {k: result[:, v.location:v.location + v.length] for k, v in self.domain.variable_dict.items()}
 
 
-class MLDataset:
+class MLDataset(DictSerializable):
+
+    load_fn = DictSerializable.get_numpy_load()
 
     """
     This class represent a typical database for machine learning. It allows the possibility to separate data onto two
@@ -222,6 +255,32 @@ class MLDataset:
         self.train_ds = Dataset(domain, n_max_row - int(n_max_row*validation))
         self.validation_ds = Dataset(domain, int(n_max_row*validation))
         self.validation = validation
+        self.n_max_row = n_max_row
+        DictSerializable.__init__(self, DictSerializable.get_numpy_save())
+
+    def _get_dict(self):
+        return dict(validation=self.validation,
+                    train_ds=self.train_ds._get_dict(),
+                    validation_ds=self.validation_ds._get_dict(),
+                    n_max_row=self.n_max_row)
+
+    @staticmethod
+    def load_from_dict(**kwargs):
+        domain = kwargs["domain"]
+        dataset = MLDataset(domain, kwargs["n_max_row"], validation=kwargs["validation"])
+        dataset.train_ds = Dataset.load_from_dict(domain=domain, **kwargs["train_ds"].item())
+        dataset.validation_ds = Dataset.load_from_dict(domain=domain, **kwargs["validation_ds"].item())
+        return dataset
+
+    @staticmethod
+    def load(file_name, domain):
+        """
+
+        :param file_name:
+        :return:
+        """
+        file = MLDataset.load_fn(file_name)
+        return MLDataset.load_from_dict(domain=domain, **file)
 
     def notify(self, **kwargs):
         """

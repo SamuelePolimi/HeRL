@@ -56,7 +56,7 @@ class RLTask:
         self._partial_gamma = 1.
         self.discounted_returns = []
 
-    def reset(self):
+    def reset(self, state=None):
         """
         Bring the environment in its initial state.
         :return: Initial state
@@ -72,7 +72,10 @@ class RLTask:
             self._first_reset = False
             self.tot_episodes += 1
 
-        self.current_state = self.environment.reset()
+        if state is None:
+            self.current_state = self.environment.reset()
+        else:
+            self.current_state = self.environment.reset(state)
         return self.current_state
 
     def step(self, action):
@@ -124,3 +127,34 @@ class RLAgent:
 
     def get_action(self, state):
         pass
+
+
+class RLAlgorithm:
+
+    def __init__(self, rl_task, policy):
+        self.rl_task = rl_task
+        self.policy = policy
+
+
+class Critic(RLAlgorithm):
+
+    def get_V(self, state):
+        raise Exception("Not Implemented")
+
+    def get_Q(self, state, action):
+        raise Exception("Not Implemented")
+
+
+class ModelBased(RLAlgorithm):
+
+    def get_R(self, state, action):
+        raise Exception("Not Implemented")
+
+    def get_T(self, state, action):
+        raise Exception("Not Implemented")
+
+
+class PolicyGradient(RLAlgorithm):
+
+    def improve(self):
+        raise Exception("Not Implemented")
