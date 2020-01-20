@@ -1,9 +1,8 @@
 import warnings
+import os
 
 from herl.dataset import Dataset, Domain, Variable
 
-import pathlib
-import os
 
 class DatasetDescriptor:
 
