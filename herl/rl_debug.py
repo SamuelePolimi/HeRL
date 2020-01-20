@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from herl.rl_analysis import Analyser
-from herl.dataset import Dataset
+from herl.dataset import Dataset, Domain, Variable
 from herl.rl_interface import Critic, RLTask
 from herl.utils import ConstantPolicyPendulum, Pendulum2D
 from herl.datasets.library import search
@@ -18,7 +18,7 @@ class PolicyEvaluationPendulum2D(Analyser):
         self.rl_task = RLTask(Pendulum2D(), gamma=0.95, max_episode_length=200)
         self.policy = ConstantPolicyPendulum()
         self.print("Loading the dataset...")
-        self.dataset = search(self.rl_task, ["pendulum2d", "uniform", "constant", "0", "0.95", "value"])
+        self.dataset = search(Domain(Variable("state", 2), Variable("value", 1)), "pendulum2d", "uniform", "constant", "0", "0.95", "value")
         #Dataset.load("datasets/pendulum2d/constant_policy_0_uniform_state_v.npz", self.rl_task.domain)
         self.print("Dataset loaded...")
         self.rl_algorithm = self.critic_class(self.rl_task, self.policy)  # type: Critic

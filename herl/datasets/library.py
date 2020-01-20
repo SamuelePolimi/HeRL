@@ -2,6 +2,8 @@ import warnings
 
 from herl.dataset import Dataset, Domain, Variable
 
+import pathlib
+import os
 
 class DatasetDescriptor:
 
@@ -39,13 +41,13 @@ class DatasetDescriptor:
 
         points = 0.
         same_domain = True
-        if len(domain.size) == len(self.domain.size):
-            n = sum([1 if v1.length == v2.length else 0
-                           for v1, v2 in zip(domain.variables, self.domain.variables)])/len(self.domain.variables)
+        if len(domain.variables) == len(self.domain.variables):
+            n = sum([v1.length if v1.length == v2.length else 0
+                           for v1, v2 in zip(domain.variables, self.domain.variables)])
             if n != domain.size:
                 same_domain = False
         else:
-            same_domain = False
+            same_domain = True
 
         set_args = set(search_args)
         match = set_args.intersection(self.keywords)
@@ -82,4 +84,10 @@ def search(domain, *keywords):
             dataset_max = v
     if not valid:
         warnings.warn("The domain does not match with any pf the datasets. There is probably a mistake in the code.")
-    return Dataset.load(dataset_max.filename, domain)
+
+    full_path = os.path.realpath(__file__)
+    path, filename = os.path.split(full_path)
+
+    print("This file directory only")
+    print(os.path.dirname(full_path))
+    return Dataset.load(path + "/" + dataset_max.filename, domain)
