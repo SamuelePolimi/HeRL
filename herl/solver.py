@@ -6,7 +6,7 @@ from herl.rl_interface import RLTask
 
 class RLCollector:
 
-    def __init__(self, dataset, rl_task, policy):
+    def __init__(self, dataset, rl_task, policy, episode_length=None):
         """
         Class to collect data from the reinforcement learning task
         :param dataset: Dataset to fill with data
@@ -18,6 +18,7 @@ class RLCollector:
         self.dataset = dataset
         self.rl_task = rl_task
         self.policy = policy
+        self.episode_length = episode_length if episode_length is not None else self.rl_task.max_episode_length
 
     def collect_samples(self, n_samples, gamma_termination=False):
         """
@@ -31,7 +32,7 @@ class RLCollector:
             i_step = 0
             terminal = False
             state = self.rl_task.reset()
-            while i_step < self.rl_task.max_episode_length and not terminal:
+            while i_step < self.episode_length and not terminal:
                 row = self.rl_task.step(self.policy.get_action(state))
                 state = row["next_state"]
                 terminal = bool(row["terminal"][0])
@@ -62,7 +63,7 @@ class RLCollector:
                 state = self.rl_task.reset()
             else:
                 state = self.rl_task.reset(start_state)
-            while i_step < self.rl_task.max_episode_length and not terminal:
+            while i_step < self.episode_length and not terminal:
                 row = self.rl_task.step(self.policy.get_action(state))
                 state = row["next_state"]
                 terminal = row["terminal"]
