@@ -87,6 +87,6 @@ def search(domain, *keywords):
     full_path = os.path.realpath(__file__)
     path, filename = os.path.split(full_path)
 
-    print("This file directory only")
-    print(os.path.dirname(full_path))
+    #print("This file directory only")
+    #print(os.path.dirname(full_path))
     return Dataset.load(path + "/" + dataset_max.filename, domain)
