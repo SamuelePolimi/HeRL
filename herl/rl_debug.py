@@ -18,21 +18,27 @@ class PolicyEvaluationPendulum2D(Analyser):
         self.rl_task = RLTask(Pendulum2D(), gamma=0.95, max_episode_length=200)
         self.policy = ConstantPolicyPendulum()
         self.print("Loading the dataset...")
-        self.dataset = search(Domain(Variable("state", 2), Variable("value", 1)), "pendulum2d", "uniform", "constant", "0", "0.95", "value")
+        self.dataset = search(Domain(Variable("state", 2), Variable("value", 1)),
+                              "pendulum2d", "uniform", "constant", "0", "0.95", "value")
         #Dataset.load("datasets/pendulum2d/constant_policy_0_uniform_state_v.npz", self.rl_task.domain)
         self.print("Dataset loaded...")
         self.rl_algorithm = self.critic_class(self.rl_task, self.policy)  # type: Critic
 
     def analyze(self):
+        self.print("Analysis Started")
         results = {}
 
         data = self.dataset.get_full()
         states = data["state"]
         values = data["value"]
 
+
+        self.print("Value Prediction")
         predicted_values = self.rl_algorithm.get_V(state=states)
 
-        results["mse"] = np.mean(np.square(values.ravel() - predicted_values.ravel())).item()
+
+        self.print("Computation of the Mean Squared Error")
+        results["mse"] = np.sqrt(np.mean(np.square(values.ravel() - predicted_values.ravel())).item())
 
         if self.plot:
             X = states[:, 0].reshape(100, 100)
@@ -46,10 +52,11 @@ class PolicyEvaluationPendulum2D(Analyser):
             plt.subplot(1, 2, 2)
             plt.title("Predicted value function")
             plt.pcolormesh(X, Y, V_p)
+            plt.colorbar()
             plt.show()
 
-            plt.pcolormesh(X, Y, V)
-        self.print("The mean squared error is %f" % results["mse"])
+            
+        self.print("The root mean squared error is %f" % results["mse"])
 
         return results
 
