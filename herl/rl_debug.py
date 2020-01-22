@@ -4,24 +4,20 @@ import numpy as np
 from herl.rl_analysis import Analyser
 from herl.dataset import Dataset, Domain, Variable
 from herl.rl_interface import Critic, RLTask
-from herl.utils import ConstantPolicyPendulum, Pendulum2D
+from herl.utils import ConstantPolicyPendulum, Pendulum2D, RandomPolicyPendulum
 from herl.datasets.library import search
 
 
 class PolicyEvaluationPendulum2D(Analyser):
 
-    def __init__(self, critic_class, verbose=True, plot=True):
+    def __init__(self, critic_class, dataset=None, policy=None, verbose=True, plot=True):
 
         Analyser.__init__(self, verbose, plot)
         self.critic_class = critic_class
 
         self.rl_task = RLTask(Pendulum2D(), gamma=0.95, max_episode_length=200)
-        self.policy = ConstantPolicyPendulum()
-        self.print("Loading the dataset...")
-        self.dataset = search(Domain(Variable("state", 2), Variable("value", 1)),
-                              "pendulum2d", "uniform", "constant", "0", "0.95", "value")
-        #Dataset.load("datasets/pendulum2d/constant_policy_0_uniform_state_v.npz", self.rl_task.domain)
-        self.print("Dataset loaded...")
+        self.policy = policy
+        self.dataset = dataset
         self.rl_algorithm = self.critic_class(self.rl_task, self.policy)  # type: Critic
 
     def analyze(self):
@@ -61,3 +57,42 @@ class PolicyEvaluationPendulum2D(Analyser):
         return results
 
 
+class PolicyEvaluationPendulum2DGridConstant(PolicyEvaluationPendulum2D):
+
+    def __init__(self, critic_class, verbose=True, plot=True):
+
+        dataset = search(Domain(Variable("state", 2), Variable("value", 1)),
+                              "pendulum2d", "grid", "constant", "0", "0.95", "value")
+
+        PolicyEvaluationPendulum2D.__init__(self, critic_class, dataset=dataset, policy=ConstantPolicyPendulum(),
+                                            verbose=verbose, plot=plot)
+
+
+class PolicyEvaluationPendulum2DConstant(PolicyEvaluationPendulum2D):
+
+    def __init__(self, critic_class, verbose=True, plot=True):
+        dataset = search(Domain(Variable("state", 2), Variable("value", 1)),
+                         "pendulum2d", "sample_policy", "constant", "0", "0.95", "value")
+
+        PolicyEvaluationPendulum2D.__init__(self, critic_class, dataset=dataset, policy=ConstantPolicyPendulum(),
+                                            verbose=verbose, plot=False)
+
+
+class PolicyEvaluationPendulum2DUniform(PolicyEvaluationPendulum2D):
+
+    def __init__(self, critic_class, verbose=True, plot=True):
+        dataset = search(Domain(Variable("state", 2), Variable("value", 1)),
+                         "pendulum2d", "sample_policy", "uniform", "0.95", "value")
+
+        PolicyEvaluationPendulum2D.__init__(self, critic_class, dataset=dataset, policy=RandomPolicyPendulum(),
+                                            verbose=verbose, plot=False)
+
+
+class PolicyEvaluationPendulum2DGridUniform(PolicyEvaluationPendulum2D):
+
+    def __init__(self, critic_class, verbose=True, plot=True):
+        dataset = search(Domain(Variable("state", 2), Variable("value", 1)),
+                         "pendulum2d", "grid", "uniform", "0.95", "value")
+
+        PolicyEvaluationPendulum2D.__init__(self, critic_class, dataset=dataset, policy=RandomPolicyPendulum(),
+                                            verbose=verbose, plot=plot)

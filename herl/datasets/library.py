@@ -67,7 +67,36 @@ datasets = {
                         It contains the values for the states in the grid, under a constant policy
                         that outputs always 0.
                         The discount factor used is 0.95, and the estimation has been carried out with MC sampling.""",
-                        ["pendulum", "pendulum2d", "uniform", "value", "mc", "montecarlo", "0"])
+                        ["pendulum", "pendulum2d", "grid", "value", "mc", "montecarlo", "0"]),
+
+    "uniform_pendulum2d_uniform_policy": \
+        DatasetDescriptor("uniform_pendulum2d_uniform_policy",
+                          "pendulum2d/uniform_policy_0_uniform_state_v.npz",
+                          Domain(Variable("state", 2), Variable("value", 1)),
+                          """This dataset is optained with Pendulum2D (in herl.utils). 
+                          It is sampled on a grid 100x100 over the state-space (angle, velodity).
+                          It contains the values for the states in the grid, under a uniform policy.
+                          The discount factor used is 0.95, and the estimation has been carried out with MC sampling.""",
+                          ["pendulum", "pendulum2d", "uniform", "value", "mc", "montecarlo", "grid"]),
+
+    "pendulum2d_uniform_policy": \
+        DatasetDescriptor("pendulum2d_uniform_policy",
+                          "pendulum2d/uniform_policy_0_state_v.npz",
+                          Domain(Variable("state", 2), Variable("value", 1)),
+                          """This dataset is optained with Pendulum2D (in herl.utils).
+                          It contains the values a uniform policy, and the state have been sampled with the same policy.
+                          The discount factor used is 0.95, and the estimation has been carried out with MC sampling.""",
+                          ["pendulum", "pendulum2d", "sample_policy", "uniform", "value", "mc", "montecarlo"]),
+
+    "pendulum2d_constant_policy": \
+        DatasetDescriptor("pendulum2d_uniform_policy",
+                          "pendulum2d/uniform_policy_0_state_v.npz",
+                          Domain(Variable("state", 2), Variable("value", 1)),
+                          """This dataset is optained with Pendulum2D (in herl.utils).
+                          It contains the values a constant policy with 0 output, 
+                          and the state have been sampled with the same policy.
+                          The discount factor used is 0.95, and the estimation has been carried out with MC sampling.""",
+                          ["pendulum", "pendulum2d", "sample_policy", "value", "mc", "montecarlo", "0", "constant"])
 }
 
 
