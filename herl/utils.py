@@ -88,6 +88,45 @@ class RLUniformCollectorPendulum:
                     self.dataset.notify(**row)
 
 
+class RLUniformCollector2DPendulum:
+
+    def __init__(self, dataset, n_angles, n_velocities, n_actions, policy=None):
+        """
+        Class to collect data from the reinforcement learning task
+        :param dataset: Dataset to fill with data
+        :type dataset: MLDataset
+        :param rl_task: Reinforcement learning Task
+        :type rl_task: RLTask
+        :param policy: The policy
+        """
+        self.dataset = dataset
+        self.rl_task = RLTask(Pendulum2D())
+        self.angles = np.linspace(-np.pi, np.pi, n_angles)
+        self.velocities = np.linspace(-8., 8., n_velocities)
+        self.actions = np.linspace(-2., 2., n_actions)
+        self.policy = policy
+
+    def collect_samples(self):
+        """
+        Collect n_samples
+        :param n_samples:
+        :type n_samples: int
+        :return: None
+        """
+        for angle in self.angles:
+            for velocity in self.velocities:
+                for action in self.actions:
+                    state = np.array([angle, velocity])
+                    self.rl_task.reset(state)
+                    self.rl_task.current_state = state
+                    if self.policy is None:
+                        row = self.rl_task.step(action)
+                    else:
+                        row = self.rl_task.step(self.policy.get_action(state))
+                    self.dataset.notify(**row)
+
+
+
 class MC2DPendulum:
 
     def __init__(self, policy, dataset, gamma=0.95, max_episodes_length=200):
