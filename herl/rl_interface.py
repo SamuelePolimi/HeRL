@@ -27,7 +27,7 @@ class RLEnvironment:
 
 class RLTask:
 
-    def __init__(self, environment, gamma=0.99, max_episode_length=np.infty):
+    def __init__(self, environment, gamma=0.99, max_episode_length=np.infty, render=False):
         """
         Reinforcement learning task. Defined by the environment and the discount factor.
         :param environment: Environment of the reinforcement learning task.
@@ -55,6 +55,7 @@ class RLTask:
         self._partial_discounted_return = 0
         self._partial_gamma = 1.
         self.discounted_returns = []
+        self.render = render
 
     def reset(self, state=None):
         """
@@ -88,6 +89,8 @@ class RLTask:
         self.tot_interactions += 1
         s = np.copy(self.current_state)
         s_n, r, t, _ = self.environment.step(action)
+        if self.render:
+            self.environment.render()
         self.current_state = s_n
 
         self._partial_return += r
