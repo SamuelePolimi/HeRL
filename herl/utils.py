@@ -34,13 +34,18 @@ class ConstantPolicyPendulum(RLAgent):
 
 class Pendulum2D(RLEnvironment):
 
-    def __init__(self):
+    def __init__(self, initial_state=None):
         super().__init__(2, 1, gym.make("Pendulum-v0"))
+        self.initial_state = initial_state
 
     def convert(self, state):
         return np.array([np.arctan2(state[1], state[0]), state[2]])
 
     def reset(self, state=None):
+        if self.initial_state is not None:
+            self.env.reset()
+            self.env.env.state = self.initial_state
+            return state
         if state is None:
             return self.convert(self.env.reset())
         else:
@@ -126,10 +131,9 @@ class RLUniformCollector2DPendulum:
                     self.dataset.notify(**row)
 
 
-
 class MC2DPendulum:
 
-    def __init__(self, policy, dataset, gamma=0.95, max_episodes_length=200):
+    def __init__(self, policy, dataset, gamma=0.95, max_episodes_length=200, pendulum=None):
         """
         Class to collect data from the reinforcement learning task
         :param dataset: Dataset to fill with data
@@ -138,9 +142,23 @@ class MC2DPendulum:
         :type rl_task: RLTask
         :param policy: The policy
         """
-        self.rl_task = RLTask(Pendulum2D(), gamma=gamma, max_episode_length=max_episodes_length)
+        my_pendulum = Pendulum2D() if pendulum is None else pendulum
+        self.rl_task = RLTask(my_pendulum, gamma=gamma, max_episode_length=max_episodes_length)
         self.policy = policy
         self.dataset = dataset
+
+    def get_J(self, n_episodes):
+        collector = RLCollector(self.rl_task.get_empty_dataset(self.rl_task.max_episode_length),
+                                self.rl_task,
+                                self.policy)
+        returns = []
+        for _ in range(n_episodes):
+            collector.collect_rollouts(1, gamma_termination=True)
+            r = collector.dataset.train_ds.get_full()["reward"]
+            d_rewards = np.sum(r)
+            collector.dataset.train_ds.flush()
+            returns.append(d_rewards)
+        return np.mean(returns)
 
     def get_v_dataset(self, n_episodes):
         data = self.dataset.get_full()
