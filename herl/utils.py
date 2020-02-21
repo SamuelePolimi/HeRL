@@ -45,7 +45,7 @@ class Pendulum2D(RLEnvironment):
         if self.initial_state is not None:
             self.env.reset()
             self.env.env.state = self.initial_state
-            return state
+            return self.env.env.state
         if state is None:
             return self.convert(self.env.reset())
         else:
