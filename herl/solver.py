@@ -19,6 +19,7 @@ class RLCollector:
         self.rl_task = rl_task
         self.policy = policy
         self.episode_length = episode_length if episode_length is not None else self.rl_task.max_episode_length
+        self.rl_task.environment.set_max_episode_steps(self.episode_length)
 
     def collect_samples(self, n_samples, gamma_termination=False):
         """

@@ -24,6 +24,15 @@ class RLEnvironment:
     def render(self):
         self.env.render()
 
+    def set_max_episode_steps(self, max_episode_length):
+        """
+
+        :param max_episode_length:
+        :type max_episode_length: int
+        :return:
+        """
+        self.env._max_episode_steps = max_episode_length
+
 
 class RLTask:
 
