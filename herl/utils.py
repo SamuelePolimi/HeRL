@@ -19,7 +19,8 @@ class RandomPolicyPendulum(RLAgent):
         super().__init__()
 
     def get_action(self, state):
-        return np.random.uniform(-2., 2., 1)
+        state = state.reshape(-1, 2)
+        return np.random.uniform(-2., 2., len(state)).reshape(-1, 1)
 
 
 class ConstantPolicyPendulum(RLAgent):

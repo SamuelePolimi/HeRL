@@ -1,12 +1,13 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 
 from herl.rl_analysis import Analyser
 from herl.dataset import Dataset, Domain, Variable
 from herl.rl_interface import Critic, RLTask
 from herl.utils import ConstantPolicyPendulum, Pendulum2D, RandomPolicyPendulum
 from herl.datasets.library import search
-
+from core.actor import Actor
 
 class PolicyEvaluationPendulum2D(Analyser):
 
@@ -15,8 +16,8 @@ class PolicyEvaluationPendulum2D(Analyser):
         Analyser.__init__(self, verbose, plot)
         self.critic_class = critic_class
 
-        self.rl_task = RLTask(Pendulum2D(), gamma=0.95, max_episode_length=200)
-        self.policy = policy
+        self.rl_task = RLTask(Pendulum2D(), gamma=0.99, max_episode_length=200)
+        self.policy = Actor([50], [torch.relu], self.rl_task, lambda x: 2.0 * torch.tanh(x))
         self.dataset = dataset
         self.rl_algorithm = self.critic_class(self.rl_task, self.policy)  # type: Critic
 
