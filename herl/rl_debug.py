@@ -32,10 +32,8 @@ class PolicyEvaluation(Analyser):
         states = data["state"]
         values = data["value"]
 
-
         self.print("Value Prediction")
         predicted_values = self.rl_algorithm.get_V(state=states)
-
 
         self.print("Computation of the Mean Squared Error")
         results["mse"] = np.sqrt(np.mean(np.square(values.ravel() - predicted_values.ravel())).item())
@@ -54,7 +52,6 @@ class PolicyEvaluation(Analyser):
             plt.pcolormesh(X, Y, V_p)
             plt.colorbar()
             plt.show()
-
             
         self.print("The root mean squared error is %f" % results["mse"])
 
@@ -78,7 +75,7 @@ class PolicyEvaluationPendulum2DConstant(PolicyEvaluation):
         dataset = search(Domain(Variable("state", 2), Variable("value", 1)),
                          "pendulum2d", "sample_policy", "constant", "0", "0.95", "value")
 
-        PolicyEvaluation.__init__(self, critic_class, LTask(Pendulum2D(), 0.95, 200), dataset=dataset, policy=ConstantPolicyPendulum(),
+        PolicyEvaluation.__init__(self, critic_class, RLTask(Pendulum2D(), 0.95, 200), dataset=dataset, policy=ConstantPolicyPendulum(),
                                             verbose=verbose, plot=False)
 
 
