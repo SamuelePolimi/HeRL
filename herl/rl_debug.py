@@ -115,7 +115,7 @@ class NeuralNetworkPolicyEvaluationPendulum2DGridUniform(PolicyEvaluation):
         states = np.concatenate([x, y], axis=1)
 
         ds.notify_batch(state=states)
-        mc_pendulum = MC2DPendulum(policy, ds, max_episodes_length=1000, pendulum=pendulum)
+        mc_pendulum = MC2DPendulum(policy, ds, max_episodes_length=50, pendulum=pendulum)
         estimate = mc_pendulum.get_v_dataset(1)
 
         PolicyEvaluation.__init__(self, critic_class, rl_task,

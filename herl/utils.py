@@ -43,11 +43,11 @@ class Pendulum2D(RLEnvironment):
         return np.array([np.arctan2(state[1], state[0]), state[2]])
 
     def reset(self, state=None):
-        if self.initial_state is not None:
-            self.env.reset()
-            self.env.env.state = self.initial_state
-            return self.env.env.state
         if state is None:
+            if self.initial_state is not None:
+                self.env.reset()
+                self.env.env.state = self.initial_state
+                return self.env.env.state
             return self.convert(self.env.reset())
         else:
             self.env.reset()
