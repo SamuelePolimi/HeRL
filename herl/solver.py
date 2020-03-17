@@ -74,6 +74,33 @@ class RLCollector:
                 self.dataset.notify(**row)
                 i_step += 1
 
+    def collect_rollouts_action(self, n_rollouts, start_state=None, start_action=None, gamma_termination=False):
+        """
+        Collect n_rollouts
+        :param n_rollouts:
+        :type n_rollouts: int
+        :return: None
+        """
+        for _ in range(n_rollouts):
+            i_step = 0
+            terminal = False
+            if start_state is None:
+                state = self.rl_task.reset()
+            else:
+                state = self.rl_task.reset(start_state)
+                row = self.rl_task.step(start_action)
+                self.dataset.notify(**row)
+                i_step += 1
+            while i_step < self.episode_length and not terminal:
+                row = self.rl_task.step(self.policy.get_action(state))
+                state = row["next_state"]
+                terminal = row["terminal"]
+                if gamma_termination:
+                    if np.random.uniform() < 1. - self.rl_task.gamma:
+                        terminal = True
+                self.dataset.notify(**row)
+                i_step += 1
+
 
 class IRLAlgorithm:
     """
