@@ -46,7 +46,7 @@ class NeuralNetwork(nn.Module):
         """
         x = x.to(dtype=torch_type)
         l_network = len(self.hidden)
-        for (i, linear_transform) in list(zip(range(l_network), self.hidden))[:-1]:  # still searching for a method to avoid loops
+        for (i, linear_transform) in list(zip(range(l_network), self.hidden))[:-1]:
             x = self.act_functions[i](linear_transform(x))
         if self.out_function is None:
             x = self.hidden[-1](x)
@@ -61,7 +61,7 @@ class Actor(RLAgent):
         RLAgent.__init__(self)
         self.nn = NeuralNetwork(h_layers, act_functions, rl_task, output_function)
 
-    def __call__(self, state):
+    def __call__(self, state, differentiable=False):
         return self.nn(state)
 
     def get_action(self, state):
