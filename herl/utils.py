@@ -87,9 +87,12 @@ class RLUniformCollectorPendulum:
         for angle in self.angles:
             for velocity in self.velocities:
                 for action in self.actions:
-                    self.rl_task.reset()
-                    self.rl_task.environment.env.state = np.array([angle, velocity])
-                    self.rl_task.current_state = np.array([np.cos(angle), np.sin(angle), velocity])
+                    state = np.array([angle, velocity])
+                   # self.rl_task.reset()
+                   # self.rl_task.environment.env.state = np.array([angle, velocity])
+                   # self.rl_task.current_state = np.array([np.cos(angle), np.sin(angle), velocity])
+                    self.rl_task.reset(state)
+                    self.rl_task.current_state = state
                     row = self.rl_task.step(action)
                     self.dataset.notify(**row)
 
@@ -112,13 +115,14 @@ class RLUniformCollector2DPendulum:
         self.actions = np.linspace(-2., 2., n_actions)
         self.policy = policy
 
-    def collect_samples(self):
+    def collect_samples(self, n_samples=None):
         """
         Collect n_samples
         :param n_samples:
         :type n_samples: int
         :return: None
         """
+
         for angle in self.angles:
             for velocity in self.velocities:
                 for action in self.actions:
@@ -129,8 +133,10 @@ class RLUniformCollector2DPendulum:
                         row = self.rl_task.step(action)
                     else:
                         row = self.rl_task.step(self.policy.get_action(state))
-                    self.dataset.notify(**row)
-
+                    if n_samples is None:
+                        self.dataset.notify(**row)
+                    elif self.dataset.train_ds.real_size < n_samples:
+                        self.dataset.notify(**row)
 
 class MC2DPendulum:
 
