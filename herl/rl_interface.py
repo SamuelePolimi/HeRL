@@ -1,12 +1,29 @@
 import numpy as np
+from gym.spaces import Box
 
 from herl.dataset import Domain, Variable, MLDataset, Dataset
 from herl.config import np_float
-from gym.spaces import Box, Discrete, Space
-#from herl.utils import deprecated
+from herl.clean_code import deprecated
 
 
-class RLEnvironment:
+class RLEnvironmentDescriptor:
+
+    def __init__(self, state_space, action_space, deterministic, init_deterministic):
+        self.state_space = state_space
+        self.state_dim = state_space.shape[0]
+        self.action_space = action_space
+        self.action_dim = action_space.shape[0]
+        self._deterministic = deterministic
+        self._init_deterministic = init_deterministic
+
+    def is_deterministic(self):
+        return self._deterministic
+
+    def is_init_deterministic(self):
+        return self._init_deterministic
+
+
+class RLEnvironment(RLEnvironmentDescriptor):
 
     def __init__(self, state_space, action_space, environment_creator, settable=False, deterministic=False,
                  init_deterministic=False):
@@ -21,15 +38,13 @@ class RLEnvironment:
         :param deterministic:
         :param init_deterministic:
         """
-        self.env = environment_creator()
+        RLEnvironmentDescriptor.__init__(self, state_space, action_space, deterministic, init_deterministic)
+        if environment_creator is not None:
+            self.env = environment_creator()
+        else:
+            self.env = None
         self._env_creator = environment_creator
-        self.state_space = state_space
-        self.state_dim = state_space.shape[0]
-        self.action_space = action_space
-        self.action_dim = action_space.shape[0]
         self._settable = settable
-        self._deterministic = deterministic
-        self._init_deterministic = init_deterministic
 
     def step(self, action):
         a = action.reshape(self.action_dim)
@@ -60,12 +75,6 @@ class RLEnvironment:
     def is_settable(self):
         return self._settable
 
-    def is_deterministic(self):
-        return self._deterministic
-
-    def is_init_deterministic(self):
-        return self._init_deterministic
-
     def copy(self):
        return  RLEnvironment(self.state_space, self.action_space, self._env_creator, self._settable,
                              self._deterministic, self._init_deterministic)
@@ -87,6 +96,9 @@ class RLEnvironment:
                          n_max_row=ravel_matrix.shape[0])
             ds.notify_batch(state=ravel_matrix[:, :self.state_dim], action=ravel_matrix[:, self.state_dim:])
             return ds
+
+    def get_descriptor(self):
+        return RLEnvironmentDescriptor(self.action_space, self.state_space, self._deterministic, self._init_deterministic)
 
 
 class RLTask:
@@ -176,12 +188,14 @@ class RLTask:
         :param policy:
         :return:
         """
+        i = 0
         self.reset(starting_state)
         t = False
         start = True
         j = 0.
         g = 1.
-        while not t:
+        while not t and i < self.max_episode_length:
+            i += 1
             if start and starting_action is not None:
                 ret = self.step(starting_action)
                 start = False
@@ -191,7 +205,6 @@ class RLTask:
             g *= self.gamma
             t = ret["terminal"]
         return j
-
 
     def get_empty_dataset(self, n_max_row=None, validation=0.):
         """
@@ -226,34 +239,72 @@ class RLTask:
 
 class RLAgent:
 
-    def __init__(self):
+    def __init__(self, deterministic=False):
+        self._deterministic = deterministic
         pass
 
     def __call__(self, state, differentiable=False):
         pass
 
     def is_deterministic(self):
-        pass
+        return self._deterministic
 
     def get_parameters(self):
         pass
 
-    def set_parameters(self):
+    def set_parameters(self, values):
         pass
 
-#    @deprecated
+    @deprecated
     def get_action(self, state):
         pass
 
 
 class RLAlgorithm:
 
-    def __init__(self, rl_task, policy):
-        self.rl_task = rl_task
+    def __init__(self, name=""):
+        self.name = name
+
+
+class Offline(RLAlgorithm):
+
+    def __init__(self, name, task_descriptor, dataset):
+        """
+        This class represents algorithms that works with an off-line dataset (i.e., the dataset is fixed), the algorithm
+        should not interact with the environment.
+        :param dataset:
+        """
+        RLAlgorithm.__init__(self, name)
+        self.task_descriptor = task_descriptor
+        self.dataset = dataset
+
+
+class Online(RLAlgorithm):
+
+    def __init__(self, name,  task):
+        """ Online algorithms must interact with the environment specified in the tast in order to collect the data.
+        :param task: The task to solve.
+        :type task: RLTask
+        """
+        RLAlgorithm.__init__(self, name)
+        self._task = task
+
+
+class Actor(RLAlgorithm):
+
+    def __init__(self, name, policy):
+        """
+        Actor algorithms must encode explicitly a policy.
+        :param policy:
+        """
+        RLAlgorithm.__init__(self, name)
         self.policy = policy
 
 
 class Critic(RLAlgorithm):
+    """
+    Critic algorithms must estimate the value function.
+    """
 
     def get_V(self, state):
         raise Exception("Not Implemented")
@@ -267,6 +318,9 @@ class Critic(RLAlgorithm):
 
 class ModelBased(RLAlgorithm):
 
+    """
+    Model Based Algorithms should approximate a model of the transition and eventually of the reward.
+    """
     def get_R(self, state, action):
         raise Exception("Not Implemented")
 
@@ -275,6 +329,10 @@ class ModelBased(RLAlgorithm):
 
 
 class PolicyGradient(RLAlgorithm):
+
+    """
+    Policy gradient algorithm must estimate the gradient of the policy, and improve it.
+    """
 
     def improve(self):
         raise Exception("Not Implemented")

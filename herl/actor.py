@@ -1,7 +1,10 @@
 import torch.nn as nn
 import torch
+import numpy as np
+
 from herl.rl_interface import RLTask, RLAgent
 from herl.config import torch_type
+
 
 
 class NeuralNetwork(nn.Module):
@@ -66,3 +69,81 @@ class Actor(RLAgent):
 
     def get_action(self, state):
         return self.nn(torch.tensor(state, dtype=torch_type)).detach().numpy()
+
+
+class ConstantPolicy(RLAgent):
+
+    def __init__(self, action=0.):
+        super().__init__()
+        self._action = action
+
+    def __call__(self, state, differentiable=False):
+        if differentiable:
+            raise Exception("This is a constant agent.")
+        else:
+            return self._action
+
+    def get_action(self, state):
+        return self._action
+
+    def is_deterministic(self):
+        return True
+
+
+class UniformPolicy(RLAgent):
+
+    def __init__(self, low, high):
+        super().__init__()
+        self._low = low
+        self._high = high
+
+    def __call__(self, state, differentiable=False):
+        if differentiable:
+            raise Exception("This is a constant agent.")
+        else:
+            return np.random.uniform(self._low, self._high)
+
+    def get_action(self, state):
+        return np.random.uniform(self._low, self._high)
+
+    def is_deterministic(self):
+        return False
+
+
+class LinearPolicy(nn.Module, RLAgent):
+
+    def __init__(self, inputSize, outputSize, diagonal=False, device=None):
+        nn.Module.__init__(self)
+        RLAgent.__init__(self, deterministic=True)
+        self.device = device
+        self.linear = torch.nn.Linear(inputSize, outputSize, bias=False).to(dtype=torch_type)
+
+    def forward(self, x):
+        out = self.linear(x)
+        return out
+
+    def __call__(self, state, differentiable=False):
+        if differentiable:
+            return nn.Module.__call__(self, state)
+        else:
+            return nn.Module.__call__(self, torch.tensor(state, dtype=torch_type)).detach().numpy()
+
+    def get_parameters(self):
+        state_dict = self.state_dict()
+
+        params = []
+        for name, param in state_dict.items():
+            # Transform the parameter as required.
+            params.append(param.numpy().ravel())
+
+        return np.concatenate(params)
+
+    def set_parameters(self, values):
+        state_dict = self.state_dict()
+
+        i = 0
+        for name, param in state_dict.items():
+            shape = param.shape
+            n = torch.prod(torch.tensor(shape)).numpy()
+            # Transform the parameter as required.
+            state_dict[name].copy_(torch.tensor(values[i:i+n], dtype=torch_type).reshape(shape))
