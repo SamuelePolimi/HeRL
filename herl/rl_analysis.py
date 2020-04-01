@@ -44,14 +44,14 @@ def montecarlo_estimate(task, state=None, action=None, policy=None, abs_confiden
         return np.mean(j_list)
 
 
-class MCAnalyzer(Critic, Actor, PolicyGradient, Online):
+class MCAnalyzer(Critic, PolicyGradient, Online):
     """
     This class perform an estimation of the critic and the gradient using Monte-Carlo sampling.
     For this, a settable environment is needed.
     """
 
     def __init__(self, rl_task, policy):
-        name = "Monte-Carlo Analyzer"
+        name = "MC"
         Actor.__init__(self, name, policy)
         Online.__init__(self, name, rl_task)
 
@@ -73,6 +73,34 @@ class MCAnalyzer(Critic, Actor, PolicyGradient, Online):
             new_params[i] = params[i] + delta
             self.policy.set_parameters(new_params)
             j_delta = montecarlo_estimate(self._task, policy=self.policy, abs_confidence=abs_confidence)
-            grad[i] = (j_ref - j_delta)/delta
+            grad[i] = (j_delta - j_ref)/delta
             self.policy.set_parameters(params)
         return grad
+
+
+def bias_variance_estimate(ground_thruth, estimator_sampler, abs_confidence=0.1):
+    """
+
+    :param ground_thruth:
+    :param estimator_sampler:
+    :param confidence:
+    :return:
+    """
+
+    estimate_list = []
+    current_std = np.inf
+    while current_std > abs_confidence or len(estimate_list) <= 1:
+        estimate_list.append(estimator_sampler())
+        current_std = 1.96 * np.std(estimate_list) / len(estimate_list)
+
+    mean_estimate = np.mean(estimate_list, axis=0)
+    variance_list = []
+
+    for estimate in estimate_list:
+        variance_list.append((mean_estimate-estimate)**2)
+
+    variance_estimate = np.mean(variance_list, axis=0)
+    bias_estimate = ground_thruth - mean_estimate
+
+    return bias_estimate, variance_estimate, estimate_list
+

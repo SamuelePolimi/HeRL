@@ -328,7 +328,7 @@ class ModelBased(RLAlgorithm):
         raise Exception("Not Implemented")
 
 
-class PolicyGradient(RLAlgorithm):
+class PolicyGradient(Actor):
 
     """
     Policy gradient algorithm must estimate the gradient of the policy, and improve it.
