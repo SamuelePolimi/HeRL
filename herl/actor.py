@@ -6,7 +6,6 @@ from herl.rl_interface import RLTask, RLAgent
 from herl.config import torch_type
 
 
-
 class NeuralNetwork(nn.Module):
     def __init__(self, h_layers, act_functions, rl_task, output_function=None):
         """
@@ -58,17 +57,39 @@ class NeuralNetwork(nn.Module):
         return x
 
 
-class Actor(RLAgent):
+class NeuralNetworkPolicy(RLAgent):
 
     def __init__(self, h_layers, act_functions, rl_task, output_function=None):
-        RLAgent.__init__(self)
+        RLAgent.__init__(self, deterministic=True)
         self.nn = NeuralNetwork(h_layers, act_functions, rl_task, output_function)
 
     def __call__(self, state, differentiable=False):
-        return self.nn(state)
+        if differentiable:
+            return self.nn(state)
+        else:
+            return self.nn(torch.tensor([state], dtype=torch_type)).detach().numpy()
 
     def get_action(self, state):
         return self.nn(torch.tensor(state, dtype=torch_type)).detach().numpy()
+
+    def save_model(self, path):
+        """
+        Saves the neural network parameters.
+        :param path:
+        :type dir: str
+        :return:
+        """
+
+        torch.save(self.nn.state_dict(), path)
+
+    def load_model(self, path):
+        """
+        Loads neural network parameters:
+        :param filename
+        :type filename: str
+        :return:
+        """
+        self.nn.load_state_dict(torch.load(path))
 
 
 class ConstantPolicy(RLAgent):
@@ -79,7 +100,7 @@ class ConstantPolicy(RLAgent):
 
     def __call__(self, state, differentiable=False):
         if differentiable:
-            raise Exception("This is a constant agent.")
+            raise torch.tensor(self._action, dtype=torch_type)
         else:
             return self._action
 
@@ -99,7 +120,7 @@ class UniformPolicy(RLAgent):
 
     def __call__(self, state, differentiable=False):
         if differentiable:
-            raise Exception("This is a constant agent.")
+            raise torch.tensor(np.random.uniform(self._low, self._high), dtype=torch_type)
         else:
             return np.random.uniform(self._low, self._high)
 

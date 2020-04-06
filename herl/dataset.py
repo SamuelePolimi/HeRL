@@ -1,7 +1,8 @@
 import numpy as np
 
-from herl.config import np_float
+from herl.config import np_type
 from herl.dict_serializable import DictSerializable
+
 
 class Variable:
     """
@@ -108,7 +109,7 @@ class Dataset(DictSerializable):
         :type n_max_row: int
         """
         self.domain = domain
-        self.memory = np.zeros((n_max_row, domain.size), dtype=np_float)
+        self.memory = np.zeros((n_max_row, domain.size), dtype=np_type)
         self.max_size = n_max_row
         self.real_size = 0
         self.pointer = 0
@@ -210,7 +211,7 @@ class Dataset(DictSerializable):
         Empty the database
         :return: None.
         """
-        self.memory = np.zeros((self.max_size, self.domain.size), dtype=np_float)
+        self.memory = np.zeros((self.max_size, self.domain.size), dtype=np_type)
         self.real_size = 0
         self.pointer = 0
 
@@ -229,8 +230,28 @@ class Dataset(DictSerializable):
         return self.real_size == 0
 
     def get_full(self):
-        result = self.memory[:self.real_size, :]
+        return self._get_full(self.memory)
+
+    def _get_full(self, memory):
+        result = memory[:self.real_size, :]
         return {k: result[:, v.location:v.location + v.length] for k, v in self.domain.variable_dict.items()}
+
+    def where(self, **kwargs):
+        """
+        We obtain all the data satisfying a certain condition (all the conditions are in AND).
+        :param kwargs: Lambda function expressing the condition. the name of the parameter corresponds to the name
+        of the dataset.
+        :type kwargs: lambda
+        :return:
+        """
+        memory = self.memory[:self.real_size]
+
+        for name, cond in kwargs.items():
+            var = self.domain.get_variable(name)
+            indx = np.argwhere(cond(memory[:,var.location:var.displacement]))[:, 0]
+            memory = memory[indx]
+
+        return self._get_full(memory)
 
 
 class MLDataset(DictSerializable):

@@ -2,13 +2,26 @@ import numpy as np
 from gym.spaces import Box
 
 from herl.dataset import Domain, Variable, MLDataset, Dataset
-from herl.config import np_float
+from herl.config import np_type
 from herl.clean_code import deprecated
 
 
 class RLEnvironmentDescriptor:
 
     def __init__(self, state_space, action_space, deterministic, init_deterministic):
+        """
+        Descriptor of the environment.
+        :param state_space: Space of the state (is mostly needed for visualization matter).
+        :type state_space: Box
+        :param action_space: Space of the action (is mostly needed for visualization matter).
+        :param deterministic: Specify whether the transition is deterministic. This is to save computation for
+        Monte Carlo approximation. The user can decide to set it to true even when the environment is _approximately_
+        deterministic.
+        :type deterministic: bool
+        :type action_space: Box
+        :param init_deterministic: specify whether the initial state is deterministic. This information is used to save
+        computation for Monte Carlo approximation.
+        """
         self.state_space = state_space
         self.state_dim = state_space.shape[0]
         self.action_space = action_space
@@ -79,12 +92,12 @@ class RLEnvironment(RLEnvironmentDescriptor):
        return  RLEnvironment(self.state_space, self.action_space, self._env_creator, self._settable,
                              self._deterministic, self._init_deterministic)
 
-    def get_grid_dataset(self, states, actions=None):
+    def get_grid_dataset(self, states, actions=None, step=False):
         grid = [np.linspace(self.state_space.low[i], self.state_space.high[i],
                      states[i]) for i in range(self.state_dim)]
         if actions is not None:
             grid += [np.linspace(self.action_space.low[i], self.action_space.high[i],
-                     states[i]) for i in range(self.action_dim)]
+                     actions[i]) for i in range(self.action_dim)]
         matrix = np.meshgrid(*grid)
         ravel_matrix = np.array([m.ravel() for m in matrix]).T
         if actions is None:
@@ -92,13 +105,41 @@ class RLEnvironment(RLEnvironmentDescriptor):
             ds.notify_batch(state=ravel_matrix)
             return ds
         else:
-            ds = Dataset(Domain(Variable("state", self.state_dim), Variable("action", self.action_dim)),
-                         n_max_row=ravel_matrix.shape[0])
-            ds.notify_batch(state=ravel_matrix[:, :self.state_dim], action=ravel_matrix[:, self.state_dim:])
+            if not step:
+                ds = Dataset(Domain(Variable("state", self.state_dim), Variable("action", self.action_dim)),
+                             n_max_row=ravel_matrix.shape[0])
+                ds.notify_batch(state=ravel_matrix[:, :self.state_dim], action=ravel_matrix[:, self.state_dim:])
+            else:
+                ds = Dataset(Domain(Variable("state", self.state_dim), Variable("action", self.action_dim),
+                               Variable("reward", 1), Variable("next_state", self.state_dim), Variable("terminal", 1),
+                               Variable("initial", 1)),
+                        n_max_row=ravel_matrix.shape[0])
+                for state, action in zip(ravel_matrix[:, :self.state_dim], ravel_matrix[:, self.state_dim:]):
+                    self.reset(state)
+                    s, r, t, i = self.step(action)
+                    ds.notify(state=state, action=action, reward=r, next_state=s,
+                                    terminal=t, initial=np.array([1.]))
             return ds
 
     def get_descriptor(self):
         return RLEnvironmentDescriptor(self.action_space, self.state_space, self._deterministic, self._init_deterministic)
+
+
+class RLTaskDescriptor:
+
+    def __init__(self, environment_descriptor, gamma=0.99, max_episode_length=np.infty):
+        """
+        The description of a task.
+        :param environment_descriptor: Description of the environment
+        :type environment_descriptor: RLEnvironmentDescriptor
+        :param gamma: Discount Factor
+        :type gamma: float
+        :param max_episode_length: Maximum number of steps
+        :type max_episode_length: int
+        """
+        self.environment_descriptor = environment_descriptor
+        self.gamma = gamma
+        self.max_episode_length = max_episode_length
 
 
 class RLTask:
@@ -118,7 +159,8 @@ class RLTask:
                              Variable("action", self.environment.action_dim),
                              Variable("reward", 1),
                              Variable("next_state", self.environment.state_dim),
-                             Variable("terminal", 1)
+                             Variable("terminal", 1),
+                             Variable("initial", 1)
                              )
         self.current_state = None
         self.max_episode_length = max_episode_length
@@ -127,6 +169,7 @@ class RLTask:
         self.tot_episodes = 0
         self.returns = []
         self._first_reset = True
+        self._first_step_ep = False
         self._partial_return = 0
         self._partial_discounted_return = 0
         self._partial_gamma = 1.
@@ -156,6 +199,7 @@ class RLTask:
                 self.current_state = self.environment.reset(state)
             else:
                 raise Exception("The state of the environment cannot be set.")
+        self._first_step_ep = True
         return self.current_state
 
     def step(self, action):
@@ -165,6 +209,8 @@ class RLTask:
         :type action: np.ndarray
         :return: dictionary with a row of the dataset
         """
+        init_state = self._first_step_ep
+        self._first_step_ep = False
         self.tot_interactions += 1
         s = np.copy(self.current_state)
         s_n, r, t, _ = self.environment.step(action)
@@ -178,9 +224,10 @@ class RLTask:
 
         return dict(state=s,
                     action=action,
-                    reward=np.array([r], dtype=np_float),
+                    reward=np.array([r], dtype=np_type),
                     next_state=s_n,
-                    terminal=np.array([t], dtype=np_float))
+                    terminal=np.array([t], dtype=np_type),
+                    initial=np.array([init_state], dtype=np_type))
 
     def episode(self, policy, starting_state=None, starting_action=None):
         """
@@ -236,12 +283,14 @@ class RLTask:
         return RLTask(environment=self.environment.copy(), gamma=self.gamma, max_episode_length=self.max_episode_length,
                render=self.render)
 
+    def get_descriptor(self):
+        return RLTaskDescriptor(self.environment.get_descriptor(), self.gamma, self.max_episode_length)
+
 
 class RLAgent:
 
     def __init__(self, deterministic=False):
         self._deterministic = deterministic
-        pass
 
     def __call__(self, state, differentiable=False):
         pass
@@ -265,18 +314,33 @@ class RLAlgorithm:
     def __init__(self, name=""):
         self.name = name
 
+    def update(self):
+        pass
+
 
 class Offline(RLAlgorithm):
 
-    def __init__(self, name, task_descriptor, dataset):
+    def __init__(self, name, task_descriptor, dataset=None):
         """
         This class represents algorithms that works with an off-line dataset (i.e., the dataset is fixed), the algorithm
         should not interact with the environment.
+        :param name: Name of the algorithm
+        :type name: str
+        :param task_descriptor: Descriptor of the task to solve.
+        :type task_descriptor: RLTasktDescriptor
         :param dataset:
+        :type dataset: Dataset
+
         """
         RLAlgorithm.__init__(self, name)
         self.task_descriptor = task_descriptor
         self.dataset = dataset
+
+    def set_dataset(self, dataset: Dataset):
+        self.dataset = dataset
+
+    def get_dataset(self):
+        return self.dataset
 
 
 class Online(RLAlgorithm):

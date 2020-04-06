@@ -1,5 +1,6 @@
 import numpy as np
 import multiprocessing as mp
+from multiprocessing.pool import ThreadPool as Pool
 
 from herl.rl_interface import RLTask, RLAgent, Critic, PolicyGradient, Actor, Online
 from herl.dataset import Dataset, Domain
@@ -59,7 +60,13 @@ class MCAnalyzer(Critic, PolicyGradient, Online):
         return montecarlo_estimate(self._task, state, action, self.policy, abs_confidence)
 
     def get_V(self, state, abs_confidence=0.1):
-        return montecarlo_estimate(self._task, state, policy=self.policy, abs_confidence=abs_confidence)
+        if len(state.shape) == 1:
+            return montecarlo_estimate(self._task, state, policy=self.policy, abs_confidence=abs_confidence)
+        else:
+            pool = Pool(mp.cpu_count())
+            f = lambda x: montecarlo_estimate(self._task, x, policy=self.policy, abs_confidence=abs_confidence)
+            v = pool.map(f, state)
+            return np.array(v)
 
     def get_return(self, abs_confidence=0.1):
         return montecarlo_estimate(self._task, policy=self.policy, abs_confidence=abs_confidence)

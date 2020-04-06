@@ -79,7 +79,7 @@ class Pendulum2D(RLEnvironment):
     def __init__(self, initial_state=None):
         init_det = initial_state is not None
         super().__init__(InfoBox(np.array([-np.pi, -8.]), np.array([np.pi, 8.]),
-                                 ["Angle of the pendulum", "Angular Velocity"], [r"$\theta$", r"\dot{\theta}"]),
+                                 ["Angle of the pendulum", "Angular Velocity"], [r"$\theta$", r"$\dot{\theta}$"]),
                             InfoBox(np.array([-2.]), np.array([2.]), ["Torque applied"], ["F"]),
                             lambda: gym.make("Pendulum-v0"), settable=True, deterministic=True,
                             init_deterministic=init_det)
@@ -104,7 +104,7 @@ class Pendulum2D(RLEnvironment):
     def step(self, action):
         a = action.reshape(self.action_space.shape[0])
         state, r, t, i = self.env.step(a)
-        return self.convert(state), r, t, i
+        return self.convert(state), r, False, i
 
     def copy(self):
         return Pendulum2D(self.initial_state)

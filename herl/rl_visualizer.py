@@ -24,15 +24,14 @@ def plot_value(ax, env, critic, discretization=None, **graphic_args):
         states = np.linspace(env.state_space.low[0], env.state_space.high[0], discretization[0])
         pool = Pool(mp.cpu_count())
         results = pool.map(critic.get_V, states.reshape(-1, 1))
-        ax.plot(states, results, **graphic_args)
+        return ax.plot(states, results, **graphic_args)
     elif env.state_space.shape[0] == 2:
         dataset = env.get_grid_dataset(discretization)
-        pool = Pool(mp.cpu_count())
         states = dataset.get_full()["state"]
-        results = pool.map(critic.get_V, states)
+        results = critic.get_V(states)
         shape = [discretization[0], discretization[1]]
         Z = np.array(results).reshape(*shape)
-        ax.pcolormesh(states[:, 0].reshape(*shape),
+        return ax.pcolormesh(states[:, 0].reshape(*shape),
                       states[:, 1].reshape(*shape),
                       Z, **graphic_args)
     else:
@@ -136,7 +135,7 @@ def plot_state_distribution(ax, environment, dataset, bandwidth=0.1, discretizat
         kde = KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(states)
         x_lin = np.linspace(environment.state_space.low[0], environment.state_space.high[0], discretization[0])
         y = kde.score_samples(x_lin.reshape(-1, 1))
-        ax.plot(x_lin.ravel(), y.ravel(), **graphic_args)
+        return ax.plot(x_lin.ravel(), y.ravel(), **graphic_args)
     elif dataset.domain.get_variable("state").length == 2:
         states = dataset.get_full()["state"]
         kde = KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(states)
@@ -145,7 +144,7 @@ def plot_state_distribution(ax, environment, dataset, bandwidth=0.1, discretizat
         X, Y = np.meshgrid(x, y)
         base = np.array([X.ravel(), Y.ravel()]).T
         z = kde.score_samples(base)
-        ax.pcolormesh(X, Y, z.reshape(discretization[0], discretization[1]), **graphic_args)
+        return ax.pcolormesh(X, Y, z.reshape(discretization[0], discretization[1]), **graphic_args)
 
 
 def plot_gradient(ax, policy_gradient, indexes,  y=0., scale=1., **graphic_args):
@@ -163,19 +162,19 @@ def plot_gradient(ax, policy_gradient, indexes,  y=0., scale=1., **graphic_args)
         gradient = policy_gradient.get_gradient()
         params = policy_gradient.policy.get_parameters()
         x = params[indexes[0]]
-        ax.scatter(x, y)
-        ax.arrow(x, y, scale, scale*gradient[indexes[0]], **graphic_args)
+        return ax.scatter(x, y), ax.arrow(x, y, scale, scale*gradient[indexes[0]], **graphic_args)
     elif len(indexes) == 2:
         gradient = policy_gradient.get_gradient()
         params = policy_gradient.policy.get_parameters()
         x = params[indexes[0]]
         y = params[indexes[1]]
-        ax.scatter(x, y)
-        ax.arrow(x, y, scale*gradient[indexes[0]], scale*gradient[indexes[1]], **graphic_args)
+        return ax.scatter(x, y),\
+            ax.arrow(x, y, scale*gradient[indexes[0]], scale*gradient[indexes[1]], **graphic_args)
 
 
-def plot_gradient_row(axs, analyzer, indxs, radius=0.5, scale=0.2, discretization=50):
+def plot_gradient_row(axs, analyzer, indxs, radius=0.5, scale=0.2, discretization=50, **graphics_args):
     """
+    Plot a row of gradients with their return landscape.
 
     :param ax:
     :type ax: plt.Axes
@@ -193,9 +192,23 @@ def plot_gradient_row(axs, analyzer, indxs, radius=0.5, scale=0.2, discretizatio
             ax.set_ylabel(r"$\hat{J}_{%s}$" % analyzer.name)
             first = False
         plot_return(ax, analyzer, analyzer.policy, [ind], np.array([param[ind] - radius]), np.array([param[ind] + radius]),
-                    discretization=np.array([discretization]))
+                    discretization=np.array([discretization]), **graphics_args)
         plot_gradient(ax, analyzer, [ind], ret, scale=scale)
         ax.set_xlabel(r"$\theta_{%d}$" % ind)
+
+
+def plot_value_row(fig, axs, env, analyzers, discretizations, **graphics_args):
+    first = True
+    for ax, an, disc in zip(axs, analyzers, discretizations):
+        ax.set_title("$\hat{V}_{%s}$" % an.name)
+        if first:
+            l = ax.set_ylabel(env.state_space.symbol[1])
+            l.set_rotation(0)
+        first = False
+        im = plot_value(ax, env, an, disc, **graphics_args)
+        fig.colorbar(im, ax= ax)
+        ax.set_xlabel(env.state_space.symbol[0])
+
 
 
 
