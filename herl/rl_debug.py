@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch.nn
 
-from herl.rl_analysis import Analyser
+from herl.rl_analysis import BaseAnalyzer
 from herl.dataset import Dataset, Domain, Variable
 from herl.rl_interface import Critic, RLTask
 from herl.utils import ConstantPolicyPendulum, Pendulum2D, RandomPolicyPendulum, MC2DPendulum, \
@@ -11,12 +11,12 @@ from herl.datasets.library import search
 from herl.actor import Actor
 
 
-class PolicyEvaluation(Analyser):
+class PolicyEvaluation(BaseAnalyzer):
 
     def __init__(self, critic_class, rl_task, dataset=None, policy=None,
                  verbose=True, plot=True):
 
-        Analyser.__init__(self, verbose, plot)
+        BaseAnalyzer.__init__(self, verbose, plot)
         self.critic_class = critic_class
 
         self.rl_task = rl_task

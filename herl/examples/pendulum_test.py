@@ -4,15 +4,14 @@ import matplotlib.pyplot as plt
 from herl.classic_envs import Pendulum2D
 from herl.rl_interface import RLTask, Online, Critic, PolicyGradient
 from herl.rl_analysis import MCAnalyzer
-from herl.utils import ConstantPolicyPendulum
 from herl.rl_visualizer import plot_value, plot_state_cloud, plot_state_distribution
-from herl.actor import UniformPolicy
+from herl.actor import UniformPolicy, ConstantPolicy
 from herl.solver import RLCollector
 
 env = Pendulum2D(initial_state=np.array([0., 0.]))
 task = RLTask(env, max_episode_length=200)
 
-policy = ConstantPolicyPendulum()
+policy = ConstantPolicy([0.])
 
 analizer = MCAnalyzer(task, policy)
 

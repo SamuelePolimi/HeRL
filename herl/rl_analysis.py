@@ -5,17 +5,13 @@ from multiprocessing.pool import ThreadPool as Pool
 from herl.rl_interface import RLTask, RLAgent, Critic, PolicyGradient, Actor, Online
 from herl.dataset import Dataset, Domain
 from herl.solver import RLCollector
+from herl.utils import Printable
 
 
-class Analyser:
+class BaseAnalyzer(Printable):
 
     def __init__(self, verbose=True, plot=True):
-        self.verbose = verbose
-        self.plot = plot
-
-    def print(self, string):
-        if self.verbose:
-            print("Analyzer: %s" % string)
+        Printable.__init__(self, "Analyzer", verbose, plot)
 
 
 def montecarlo_estimate(task, state=None, action=None, policy=None, abs_confidence=0.1):
@@ -85,7 +81,7 @@ class MCAnalyzer(Critic, PolicyGradient, Online):
         return grad
 
 
-def bias_variance_estimate(ground_thruth, estimator_sampler, abs_confidence=0.1):
+def bias_variance_estimate(ground_thruth, estimator_sampler, abs_confidence=0.1, min_samples=10):
     """
 
     :param ground_thruth:
@@ -96,7 +92,7 @@ def bias_variance_estimate(ground_thruth, estimator_sampler, abs_confidence=0.1)
 
     estimate_list = []
     current_std = np.inf
-    while current_std > abs_confidence or len(estimate_list) <= 1:
+    while current_std > abs_confidence or len(estimate_list) <= min_samples:
         estimate_list.append(estimator_sampler())
         current_std = 1.96 * np.std(estimate_list) / len(estimate_list)
 
@@ -107,7 +103,7 @@ def bias_variance_estimate(ground_thruth, estimator_sampler, abs_confidence=0.1)
         variance_list.append((mean_estimate-estimate)**2)
 
     variance_estimate = np.mean(variance_list, axis=0)
-    bias_estimate = ground_thruth - mean_estimate
+    bias_estimate = mean_estimate - ground_thruth
 
-    return bias_estimate, variance_estimate, estimate_list
+    return bias_estimate, variance_estimate, estimate_list, "nopg"
 

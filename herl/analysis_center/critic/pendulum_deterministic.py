@@ -6,13 +6,14 @@ import torch, numpy as np
 import matplotlib.pyplot as plt
 import os
 
-from herl.actor import NeuralNetworkPolicy
+from herl.actor import NeuralNetworkPolicy, UniformPolicy
 from herl.dataset import Dataset, Domain, Variable
 from herl.rl_interface import RLTask, Critic, Online, PolicyGradient, Offline
 from herl.classic_envs import Pendulum2D
 from herl.rl_analysis import MCAnalyzer
 from herl.rl_visualizer import plot_value, plot_value_row, plot_state_cloud, plot_state_distribution
 from herl.analysis_center.critic.critic_analyzer import CriticAnalyzer
+from herl.solver import RLCollector
 
 task = RLTask(Pendulum2D(np.array([np.pi, 0.])), gamma=0.95, max_episode_length=200)
 
@@ -80,8 +81,10 @@ class SavedAnalyzer(Critic, Online, PolicyGradient):
                                Domain(Variable("state", 2), Variable("value", 1)))
         return dataset.get_full()["value"]
 
+    def get_return(self):
+        analyzer = MCAnalyzer(task, self.policy)
+        return analyzer.get_return()
 
-# Reset().reset()
 
 policy = _load_neural_network()
 analyzer = SavedAnalyzer(task, policy)
@@ -90,24 +93,76 @@ analyzer = SavedAnalyzer(task, policy)
 class Pendulum2DCriticAnalyzer(CriticAnalyzer):
 
     def __init__(self, *algorithm_constructors):
+        """
+        This class analyzes the performance of the critic on a simple deterministic 2D Pendulum.
+        The task consists in evaluating a neural network policy given a set of data.
+        The analyzer includes:
+             - small and large uniform data to evaluate the policy
+             - dataset generated randomply to evaluate the policy
+             - bias and variance of the estimated return
+             - return landscape
+        :param algorithm_constructors:
+        """
         CriticAnalyzer.__init__(self, task, analyzer, *algorithm_constructors)
         self.policy = policy
+        self.print("""Pendulum2DCriticAnalyzer.
+        The purpose of this analyzer is to evaluate the critic estimation of a deterministic 2D pendulum.""")
+
+    def all_analysis(self):
+        self.visualize_value_small_uniform_dataset()
+        self.visualize_value_large_uniform_dataset()
+        self.visualize_value_random_policy_dataset()
 
     def visualize_value_small_uniform_dataset(self, *discretization, **graphic_args):
+        self.print("The dataset is generated on a grid of values 25x25x2 (angle, velocity, action).")
         dataset = task.environment.get_grid_dataset(states=np.array([25, 25]), actions=np.array([2]), step=True)
-        ax = plt.subplot()
-        plot_state_distribution(ax, task.environment, dataset, discretization=np.array([100, 100]), bandwidth=0.3)
-        plot_state_cloud(ax, dataset, s=1.)
-        l = ax.set_ylabel(self.task.environment.state_space.symbol[1])
-        l.set_rotation(0)
-        ax.set_xlabel(self.task.environment.state_space.symbol[0])
-        ax.set_title("Dataset")
-        plt.show()
 
-        if len(discretization)==0:
-            self.visualize_value(dataset, self.policy, *([np.array([100, 100])]*len(self.algorithm_constructors)),
-                                 **graphic_args)
-        else:
-            self.visualize_value(dataset, self.policy, *discretization, **graphic_args)
+        self.visualize_value(dataset, self.policy, np.array([100, 100]), *discretization, **graphic_args)
 
+    def visualize_value_large_uniform_dataset(self, *discretization, **graphic_args):
+        self.print("The dataset is generated on a grid of values 50x50x3 (angle, velocity, action).")
+        dataset = task.environment.get_grid_dataset(states=np.array([50, 50]), actions=np.array([3]), step=True)
 
+        self.visualize_value(dataset, self.policy, np.array([100, 100]), *discretization, **graphic_args)
+
+    def visualize_value_random_policy_dataset(self, *discretization, **graphic_args):
+        self.print("The dataset is generated with rollout starting half o "
+                   "position and following a random policy")
+        uniform_policy = UniformPolicy(np.array([-2.]), np.array([2.]))
+        n_rollout = 20
+        random_start_task = RLTask(Pendulum2D(), gamma=0.95, max_episode_length=200)
+        dataset = self.task.get_empty_dataset(n_max_row=n_rollout*self.task.max_episode_length)
+        collector = RLCollector(dataset, random_start_task, uniform_policy)
+        collector.collect_rollouts(int(n_rollout))
+        #collector.collect_rollouts(int(n_rollout/2))
+
+        self.visualize_value(dataset.train_ds, self.policy, np.array([100, 100]), *discretization, **graphic_args)
+
+    def offpolicy_bias_variance_estimates(self):
+        self.print("The dataset is generated with rollout starting from random position"
+                   "and following a random policy")
+        uniform_policy = UniformPolicy(np.array([-2.]), np.array([2.]))
+        n_rollout = 20
+        random_start_task = RLTask(Pendulum2D(), gamma=0.95, max_episode_length=200)
+
+        def get_dataset():
+            dataset = self.task.get_empty_dataset(n_max_row=n_rollout * self.task.max_episode_length)
+            collector = RLCollector(dataset, random_start_task, uniform_policy)
+            collector.collect_rollouts(int(n_rollout))
+            return dataset.train_ds
+
+        self.bias_variance_return(get_dataset, self.policy)
+
+    def onpolicy_bias_variance_estimates(self):
+        self.print("The dataset is generated with rollout starting from the bottom position (as prescribed in the task)"
+                   "and following the evaluation policy")
+        n_rollout = 1
+        random_start_task = RLTask(Pendulum2D(), gamma=0.95, max_episode_length=200)
+
+        def get_dataset():
+            dataset = self.task.get_empty_dataset(n_max_row=n_rollout * self.task.max_episode_length)
+            collector = RLCollector(dataset, random_start_task, self.policy)
+            collector.collect_rollouts(int(n_rollout))
+            return dataset.train_ds
+
+        self.bias_variance_return(get_dataset, self.policy)

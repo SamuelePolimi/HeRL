@@ -4,6 +4,7 @@ from gym.spaces import Box
 from herl.dataset import Domain, Variable, MLDataset, Dataset
 from herl.config import np_type
 from herl.clean_code import deprecated
+from herl.utils import Printable
 
 
 class RLEnvironmentDescriptor:
@@ -309,13 +310,13 @@ class RLAgent:
         pass
 
 
-class RLAlgorithm:
+class RLAlgorithm(Printable):
 
     def __init__(self, name=""):
-        self.name = name
+        Printable.__init__(self, name, False, False)
 
     def update(self):
-        pass
+        raise NotImplemented()
 
 
 class Offline(RLAlgorithm):
@@ -371,13 +372,13 @@ class Critic(RLAlgorithm):
     """
 
     def get_V(self, state):
-        raise Exception("Not Implemented")
+        raise NotImplemented()
 
     def get_Q(self, state, action):
-        raise Exception("Not Implemented")
+        raise NotImplemented()
 
     def get_return(self):
-        raise Exception("Not Implemented")
+        raise NotImplemented()
 
 
 class ModelBased(RLAlgorithm):
@@ -386,10 +387,10 @@ class ModelBased(RLAlgorithm):
     Model Based Algorithms should approximate a model of the transition and eventually of the reward.
     """
     def get_R(self, state, action):
-        raise Exception("Not Implemented")
+        raise NotImplemented()
 
     def get_T(self, state, action):
-        raise Exception("Not Implemented")
+        raise NotImplemented()
 
 
 class PolicyGradient(Actor):
@@ -399,7 +400,7 @@ class PolicyGradient(Actor):
     """
 
     def improve(self):
-        raise Exception("Not Implemented")
+        raise NotImplemented()
 
     def get_gradient(self):
-        raise Exception("Not Implemented")
+        raise NotImplemented()
