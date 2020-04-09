@@ -57,20 +57,20 @@ class NeuralNetwork(nn.Module):
         return x
 
 
-class NeuralNetworkPolicy(RLAgent):
+class NeuralNetworkPolicy(RLAgent, NeuralNetwork):
 
     def __init__(self, h_layers, act_functions, rl_task, output_function=None):
         RLAgent.__init__(self, deterministic=True)
-        self.nn = NeuralNetwork(h_layers, act_functions, rl_task, output_function)
+        NeuralNetwork.__init__(self, h_layers, act_functions, rl_task, output_function)
 
     def __call__(self, state, differentiable=False):
         if differentiable:
-            return self.nn(state)
+            return NeuralNetwork.__call__(self, state)
         else:
-            return self.nn(torch.tensor([state], dtype=torch_type)).detach().numpy()
+            return NeuralNetwork.__call__(self, torch.tensor(state, dtype=torch_type)).detach().numpy()
 
     def get_action(self, state):
-        return self.nn(torch.tensor(state, dtype=torch_type)).detach().numpy()
+        return NeuralNetwork.__call__(self, torch.tensor(state, dtype=torch_type)).detach().numpy()
 
     def save_model(self, path):
         """
@@ -80,7 +80,7 @@ class NeuralNetworkPolicy(RLAgent):
         :return:
         """
 
-        torch.save(self.nn.state_dict(), path)
+        torch.save(self.state_dict(), path)
 
     def load_model(self, path):
         """
@@ -89,7 +89,35 @@ class NeuralNetworkPolicy(RLAgent):
         :type filename: str
         :return:
         """
-        self.nn.load_state_dict(torch.load(path))
+        self.load_state_dict(torch.load(path))
+
+    def get_parameters(self):
+        state_dict = self.state_dict()
+
+        params = []
+        for name, param in state_dict.items():
+            # Transform the parameter as required.
+            params.append(param.numpy().ravel())
+
+        return np.concatenate(params)
+
+    def set_parameters(self, values):
+        state_dict = self.state_dict()
+
+        i = 0
+        for name, param in state_dict.items():
+            shape = param.shape
+            n = torch.prod(torch.tensor(shape)).numpy()
+            # Transform the parameter as required.
+            state_dict[name].copy_(torch.tensor(values[i:i+n], dtype=torch_type).reshape(shape))
+            i+=n
+
+    def get_gradient(self):
+        grads = []
+        for param in self.parameters():
+            grads.append(param.grad.detach().numpy().ravel())
+
+        return np.concatenate(grads)
 
 
 class ConstantPolicy(RLAgent):
@@ -168,3 +196,11 @@ class LinearPolicy(nn.Module, RLAgent):
             n = torch.prod(torch.tensor(shape)).numpy()
             # Transform the parameter as required.
             state_dict[name].copy_(torch.tensor(values[i:i+n], dtype=torch_type).reshape(shape))
+            i+=n
+
+    def get_gradient(self):
+        grads = []
+        for param in self.parameters():
+            grads.append(param.grad.detach().numpy().ravel())
+
+        return np.concatenate(grads)

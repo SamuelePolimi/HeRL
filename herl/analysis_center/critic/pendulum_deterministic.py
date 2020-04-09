@@ -11,7 +11,7 @@ from herl.dataset import Dataset, Domain, Variable
 from herl.rl_interface import RLTask, Critic, Online, PolicyGradient, Offline
 from herl.classic_envs import Pendulum2D
 from herl.rl_analysis import MCAnalyzer
-from herl.rl_visualizer import plot_value, plot_value_row, plot_state_cloud, plot_state_distribution
+from herl.rl_visualizer import sample_vs_bias_variance
 from herl.analysis_center.critic.critic_analyzer import CriticAnalyzer
 from herl.solver import RLCollector
 
@@ -112,6 +112,8 @@ class Pendulum2DCriticAnalyzer(CriticAnalyzer):
         self.visualize_value_small_uniform_dataset()
         self.visualize_value_large_uniform_dataset()
         self.visualize_value_random_policy_dataset()
+        self.onpolicy_bias_variance_estimates()
+        self.offpolicy_bias_variance_estimates()
 
     def visualize_value_small_uniform_dataset(self, *discretization, **graphic_args):
         self.print("The dataset is generated on a grid of values 25x25x2 (angle, velocity, action).")
@@ -134,7 +136,6 @@ class Pendulum2DCriticAnalyzer(CriticAnalyzer):
         dataset = self.task.get_empty_dataset(n_max_row=n_rollout*self.task.max_episode_length)
         collector = RLCollector(dataset, random_start_task, uniform_policy)
         collector.collect_rollouts(int(n_rollout))
-        #collector.collect_rollouts(int(n_rollout/2))
 
         self.visualize_value(dataset.train_ds, self.policy, np.array([100, 100]), *discretization, **graphic_args)
 
@@ -166,3 +167,20 @@ class Pendulum2DCriticAnalyzer(CriticAnalyzer):
             return dataset.train_ds
 
         self.bias_variance_return(get_dataset, self.policy)
+
+    def onpolicy_sample_bias_variance_estimates(self):
+        self.print("The dataset is generated with rollout starting from the bottom position (as prescribed in the task)"
+                   " and following the evaluation policy")
+        n_rollout = 1
+        ret = self.reference.get_return()
+
+        def get_return_estimate(i, n):
+            random_start_task = RLTask(Pendulum2D(), gamma=0.95, max_episode_length=200)
+            dataset = self.task.get_empty_dataset(n_max_row=int(n))
+            collector = RLCollector(dataset, random_start_task, self.policy)
+            collector.collect_samples(int(n))
+            return self.algorithm_constructors[i](self.task.get_descriptor(), dataset.train_ds, self.policy).get_return()
+
+        ax = plt.subplot()
+        sample_vs_bias_variance(ax, ret, lambda x: lambda: get_return_estimate(0, x), values=[1000, 1250, 1500, 2000, 5000])
+        self.show()

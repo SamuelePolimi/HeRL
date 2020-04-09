@@ -65,7 +65,7 @@ class MCAnalyzer(Critic, PolicyGradient, Online):
             return np.array(v)
 
     def get_return(self, abs_confidence=0.1):
-        return montecarlo_estimate(self._task, policy=self.policy, abs_confidence=abs_confidence)
+        return np.asscalar(montecarlo_estimate(self._task, policy=self.policy, abs_confidence=abs_confidence))
 
     def get_gradient(self, delta=1E-2, abs_confidence=0.1):
         params = self.policy.get_parameters().copy()
@@ -81,7 +81,7 @@ class MCAnalyzer(Critic, PolicyGradient, Online):
         return grad
 
 
-def bias_variance_estimate(ground_thruth, estimator_sampler, abs_confidence=0.1, min_samples=10):
+def bias_variance_estimate(ground_thruth, estimator_sampler, abs_confidence=0.1, min_samples=10, max_sample=20):
     """
 
     :param ground_thruth:
@@ -92,7 +92,7 @@ def bias_variance_estimate(ground_thruth, estimator_sampler, abs_confidence=0.1,
 
     estimate_list = []
     current_std = np.inf
-    while current_std > abs_confidence or len(estimate_list) <= min_samples:
+    while (current_std > abs_confidence or len(estimate_list) <= min_samples) and len(estimate_list)<=max_sample:
         estimate_list.append(estimator_sampler())
         current_std = 1.96 * np.std(estimate_list) / len(estimate_list)
 

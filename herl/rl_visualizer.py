@@ -3,20 +3,158 @@ import matplotlib.pyplot as plt
 import multiprocessing as mp
 from multiprocessing.pool import ThreadPool as Pool
 from sklearn.neighbors import KernelDensity
+from typing import Callable, Any, Iterable
 
-from herl.rl_interface import Critic, RLEnvironment, PolicyGradient
+from herl.rl_interface import Critic, RLEnvironment, PolicyGradient, RLEnvironmentDescriptor
 from herl.dataset import Dataset
+from herl.dict_serializable import DictSerializable
+from herl.rl_analysis import bias_variance_estimate
 
 
-def plot_value(ax, env, critic, discretization=None, **graphic_args):
+class PlotVisualizer(DictSerializable):
+
+    def __init__(self, plot_class_id):
+        """
+        This class defines a visualizer. The visualizer exposes mainly two methods: compute and visualize.
+        The compute method should take care to produce the data visualized in the plot. The data must be saved in self._data.
+        The visualizer plots on a (or multiple) plt.Axes objects.
+
+        This approaches has several advantages:
+           1. disentangling computation and visualization makes the code clearer.
+           2. it is possible to compute only once and visualize multiple times on different ax and with different graphics properties.
+           3. most importantly it is possible to save and load data from disk.
+        """
+        DictSerializable.__init__(self, DictSerializable.get_numpy_save())
+        self._data = {'name': plot_class_id}
+        self._values = False
+
+    def compute(self, *args, **kwargs):
+        """
+        This methods compute the quantities to produce the plot.
+        :param args:
+        :param kwargs:
+        :return:
+        """
+        raise NotImplemented()
+
+    def visulize(self, *args, **kwargs):
+        """
+        This method produces the actual plot, once the data has been computed.
+        :param args:
+        :param kwargs:
+        :return:
+        """
+        raise NotImplemented()
+
+    def _standard_plot(self, ax, **graphic_args):
+        return ax.plot(self._data['x'], self._data['y'], **graphic_args)
+
+    def _standard_heat_map(self, ax, **graphic_args):
+        return ax.pcolormesh(self._data['x'], self._data['y'], self._data['z'] **graphic_args)
+
+    def _standard_scatter(self, ax, **graphic_agrs):
+        return ax.scatter(self._data['p_x'], self._data['p_y'], **graphic_agrs)
+
+    def _standard_arrow(self, ax, fixed_dx=None, resize=1, **graphic_args):
+        if fixed_dx is not None:
+            return ax.arrow(self._data['a_x'], self._data['a_y'], fixed_dx,
+                            self._data['a_dy']/self._data['a_dx']*fixed_dx, **graphic_args)
+        else:
+            return ax.arrow(self._data['a_x'], self._data['a_y'], self._data['a_dx']*resize,
+                            self._data['a_dy']*resize, **graphic_args)
+
+    def _check(self):
+        if not self._values:
+            raise Exception("The data has not been computed or loaded yet.")
+
+    def _get_dict(self):
+        return self._data
+
+    @staticmethod
+    def load_from_dict(**kwargs):
+        visualizer = ValueFunctionVisualizer()
+        visualizer._data = kwargs
+        visualizer._values = True
+
+    @staticmethod
+    def load(file_name):
+        """
+
+        :param file_name:
+        :param domain:
+        :return:
+        """
+        file = Dataset.load_fn(file_name)
+        return Dataset.load_from_dict(**file)
+
+
+class ValueFunctionVisualizer(PlotVisualizer):
+
+    def __init__(self):
+        PlotVisualizer.__init__(self, 'ValueFunction')
+
+    def compute(self, env: RLEnvironment, critic: Critic, discretization: Iterable = None):
+        if env.state_space.shape[0] == 1:
+            self._data['d'] = 1
+            self._data['x'] = np.linspace(env.state_space.low[0], env.state_space.high[0], discretization[0])
+            pool = Pool(mp.cpu_count())
+            self._data['y'] = pool.map(critic.get_V, self._data['x'].reshape(-1, 1))
+        elif env.state_space.shape[0] == 2:
+            self._data['d'] = 1
+            dataset = env.get_grid_dataset(discretization)
+            states = dataset.get_full()["state"]
+            results = critic.get_V(states)
+            shape = [discretization[0], discretization[1]]
+            self._data['z'] = np.array(results).reshape(*shape)
+            self._data['x'] = states[:, 0].reshape(*shape)
+            self._data['y'] = states[:, 1].reshape(*shape)
+        else:
+            raise Exception("State space must be one or two dimensional.")
+        self._values = True
+
+    def visulize(self, ax: plt.Axes, **graphic_args: Any):
+        self._check()
+        if self._data['d'] == 1:
+            return self._standard_plot(ax, **graphic_args)
+        elif self._data['d'] == 2:
+            return self._standard_heat_map(ax, **graphic_args)
+        else:
+            raise Exception("Compute or load the values")
+
+
+class QFunctionVisualizer(PlotVisualizer):
+
+    def __init__(self):
+        PlotVisualizer.__init__(self, 'ValueFunction')
+
+    def compute(self, env: RLEnvironment, critic: Critic, discretization: Iterable = None):
+        if env.state_space.shape[0] == 1 and env.action_space.shape[0] == 1:
+            dataset = env.get_grid_dataset(discretization[0:1], discretization[1:])
+            ds = dataset.get_full()
+            self._data['x'], self._data['y'] = ds["state"], ds["action"]
+            self._data['z'] = critic.get_Q(self._data['x'], self._data['y'])
+            shape = [discretization[0], discretization[1]]
+            self._data['x'] = np.array(self._data['x']).reshape(*shape)
+            self._data['y'] = np.array(self._data['y']).reshape(*shape)
+            self._data['z'] = np.array(self._data['z']).reshape(*shape)
+        else:
+            raise Exception(
+                "It is not possible to render an environment with total space (state + action) greater than two.")
+        self._values = True
+
+    def visulize(self, ax: plt.Axes, **graphic_args: Any):
+        self._check()
+        return self._standard_plot(ax, **graphic_args)
+
+
+
+def plot_value(ax: plt.Axes, env: RLEnvironment, critic: Critic, discretization: Iterable=None, **graphic_args: Any):
     """
-
-    :param ax:
-    :type ax: plt.Axes
-    :param env: Environment
-    :type env: RLEnvironment
-    :param critic:
-    :type critic: Critic
+    Plot the value function.
+    :param ax: Axes of matplotlib
+    :param env: The environment for which we want to plot the value.
+    :param critic: The estimator of the value function. It must have a 1d or 2d statespace.
+    :param discretization: The granularity of the plot (list or np.array)
     :return:
     """
 
@@ -38,12 +176,11 @@ def plot_value(ax, env, critic, discretization=None, **graphic_args):
         raise Exception("It is not possible to render an environment with state dimension greater than two.")
 
 
-def plot_q_value(ax, env, critic, discretization=None, **graphic_args):
+def plot_q_value(ax: plt.Axes, env: RLEnvironment, critic: Critic, discretization:Iterable=None, **graphic_args: Any):
     """
-
-    :param ax:
-    :type ax: plt.Axes
-    :param env: Environment
+    Plot the Q-Function.
+    :param ax: The axes on which to plot the Q-Function
+    :param env: A 1-d state 1-d action environment
     :type env: RLEnvironment
     :param critic:
     :type critic: Critic
@@ -59,17 +196,19 @@ def plot_q_value(ax, env, critic, discretization=None, **graphic_args):
         results = pool.map(evaluate, zip(states, actions))
         shape = [discretization[0], discretization[1]]
         Z = np.array(results).reshape(*shape)
-        ax.pcolormesh(states.reshape(*shape),
+        img = ax.pcolormesh(states.reshape(*shape),
                       actions.reshape(*shape),
                       Z, **graphic_args)
     else:
         raise Exception("It is not possible to render an environment with total space (state + action) greater than two.")
+    return  img
 
 
-def plot_return(ax, critic, policy,  indexes, low, high, discretization=None, **graphic_args):
+def plot_return(ax: plt.Axes, critic: Critic, policy,  indexes, low, high, discretization=None, **graphic_args):
     """
-
-    :param ax:
+    Plot the return landscape w.r.t. the policy parameters (1 policy parameter produces a plot, 2 policy parameters, produce an heatmap).
+    No more than two parameters are allowed.
+    :param ax: Axes from
     :type ax: plt.Axes
     :param critic:
     :type critic: Critic
@@ -85,8 +224,8 @@ def plot_return(ax, critic, policy,  indexes, low, high, discretization=None, **
             new_params[indexes[0]] = param
             policy.set_parameters(new_params)
             y.append(np.asscalar(critic.get_return()))
+            policy.set_parameters(ref_param)
         fig = ax.plot(params, y, **graphic_args)
-        policy.set_parameters(ref_param)
     elif len(indexes) == 2:
         x = np.linspace(low[0], high[0], discretization[0])
         y = np.linspace(low[1], high[1], discretization[1])
@@ -100,10 +239,11 @@ def plot_return(ax, critic, policy,  indexes, low, high, discretization=None, **
                 new_params[indexes[1]] = param[1]
                 policy.set_parameters(new_params)
                 Z[i, j] = np.asscalar(critic.get_return())
+                policy.set_parameters(ref_param)
         fig = ax.pcolormesh(X, Y, Z, **graphic_args)
-        policy.set_parameters(ref_param)
     else:
         raise Exception("It is not possible to render an environment with state dimension greater than two.")
+    policy.set_parameters(ref_param)
     return fig
 
 
@@ -147,7 +287,7 @@ def plot_state_distribution(ax, environment, dataset, bandwidth=0.1, discretizat
         return ax.pcolormesh(X, Y, z.reshape(discretization[0], discretization[1]), **graphic_args)
 
 
-def plot_gradient(ax, policy_gradient, indexes,  y=0., scale=1., **graphic_args):
+def plot_gradient(ax, policy_gradient, indexes, gradient=None, y=0., scale=1., **graphic_args):
     """
 
     :param ax:
@@ -159,10 +299,15 @@ def plot_gradient(ax, policy_gradient, indexes,  y=0., scale=1., **graphic_args)
     :return:
     """
     if len(indexes) == 1:
-        gradient = policy_gradient.get_gradient()
+        if gradient is None:
+            gradient = policy_gradient.get_gradient()
         params = policy_gradient.policy.get_parameters()
         x = params[indexes[0]]
-        return ax.scatter(x, y), ax.arrow(x, y, scale, scale*gradient[indexes[0]], **graphic_args)
+        if gradient[indexes[0]] > 0:
+            img = ax.arrow(x, y, scale, scale * gradient[indexes[0]], **graphic_args)
+        else:
+            img = ax.arrow(x, y, -scale, -scale * gradient[indexes[0]], **graphic_args)
+        return ax.scatter(x, y), img
     elif len(indexes) == 2:
         gradient = policy_gradient.get_gradient()
         params = policy_gradient.policy.get_parameters()
@@ -172,7 +317,26 @@ def plot_gradient(ax, policy_gradient, indexes,  y=0., scale=1., **graphic_args)
             ax.arrow(x, y, scale*gradient[indexes[0]], scale*gradient[indexes[1]], **graphic_args)
 
 
-def plot_gradient_row(axs, analyzer, indxs, radius=0.5, scale=0.2, discretization=50, **graphics_args):
+def plot_return_row(axs, analyzer, indxs, radius=0.5, discretization=50,
+                      **graphics_args):
+    param = analyzer.policy.get_parameters()
+    first = True
+    for ax, ind in zip(axs, indxs):
+        if first:
+            ax.set_ylabel(r"$\hat{J}_{%s}$" % analyzer.name)
+            first = False
+            plot_return(ax, analyzer, analyzer.policy, [ind], np.array([param[ind] - radius]),
+                    np.array([param[ind] + radius]),
+                    discretization=np.array([discretization]), **graphics_args)
+        else:
+            plot_return(ax, analyzer, analyzer.policy, [ind], np.array([param[ind] - radius]),
+                        np.array([param[ind] + radius]),
+                        discretization=np.array([discretization]), **graphics_args)
+        ax.set_xlabel(r"$\theta_{%d}$" % ind)
+
+
+def plot_gradient_row(axs, analyzer, indxs, ret, gradient=None, scale=0.2,
+                      **graphics_args):
     """
     Plot a row of gradients with their return landscape.
 
@@ -184,16 +348,12 @@ def plot_gradient_row(axs, analyzer, indxs, radius=0.5, scale=0.2, discretizatio
     :type analyzer: Union[PolicyGradient, Critic]
     :return:
     """
-    param = analyzer.policy.get_parameters()
-    ret = analyzer.get_return()
     first = True
     for ax, ind in zip(axs, indxs):
         if first:
             ax.set_ylabel(r"$\hat{J}_{%s}$" % analyzer.name)
             first = False
-        plot_return(ax, analyzer, analyzer.policy, [ind], np.array([param[ind] - radius]), np.array([param[ind] + radius]),
-                    discretization=np.array([discretization]), **graphics_args)
-        plot_gradient(ax, analyzer, [ind], ret, scale=scale)
+        plot_gradient(ax, analyzer, [ind], gradient=gradient, y=ret, scale=scale)
         ax.set_xlabel(r"$\theta_{%d}$" % ind)
 
 
@@ -206,9 +366,34 @@ def plot_value_row(fig, axs, env, analyzers, discretizations, **graphics_args):
             l.set_rotation(0)
         first = False
         im = plot_value(ax, env, an, disc, **graphics_args)
-        fig.colorbar(im, ax= ax)
+        fig.colorbar(im, ax=ax)
         ax.set_xlabel(env.state_space.symbol[0])
 
+
+def sample_vs_bias_variance(ax: plt.Axes, reference: float or np.ndarray,
+                            analyzer: Callable[[float or int], Callable],
+                            values=None):
+    """
+    Generate a bias/variance plot w.r.t. the size of the dataset.
+    :param ax: The axes used tfor the plot.
+    :param dataset_generator: A function that generats a dataset of n samples.
+    :param reference: The ground truth. This is the numerical value of reference (can be either a scalar or an array).
+    :param analyzer: It is a function receiving a dataset and returning an estimate of the value.
+    :param values: It is a list (or an array) of sizes of the dataset.
+    :return:
+    """
+    biases = []
+    variances = []
+    for v in values:
+        bias, variance, estimates, _ = bias_variance_estimate(reference, analyzer(v))
+        biases.append(bias**2)
+        variances.append(variance)
+
+    mse = np.array(biases) + np.array(variances)
+    ax.plot(values, biases, label="Bias")
+    ax.plot(values, variances, label="Variance")
+    ax.plot(values, mse, label="MSE")
+    ax.legend(loc="best")
 
 
 

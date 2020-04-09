@@ -14,7 +14,7 @@ class CriticAnalyzer(BaseAnalyzer):
 
     def __init__(self, task, reference, algorithm_constructors, verbose=True):
         """
-
+        This class analyzes the most important quantities for a critic.
         :param task:
         :type task: RLTask
         """
@@ -38,6 +38,7 @@ class CriticAnalyzer(BaseAnalyzer):
         self.print("Visualization of the value estimation.")
         algos = [constructor(task=self.tak_descriptor, dataset=dataset, policy=policy)
                  for constructor in self.algorithm_constructors]
+
         fig, ax = plt.subplots(1, 1 + len(algos))
         if len(discretization)==0:
             discretization_list = [discretization_reference]*len(self.algorithm_constructors)
@@ -69,4 +70,3 @@ class CriticAnalyzer(BaseAnalyzer):
             self.print("Estimator %s has a bias of %f and variance of %f with confidence of 95%%."\
                        % (name, bias, variance))
         self.show()
-        

@@ -21,5 +21,11 @@ Examples
 
 ```
 
+- [ ] Comment all the methods and write the types
+- [ ] Visualizer class? (In order to save partial results)
+- [ ] Delete old analyzers
+- [ ] Think if there is the need to move some class to more appropriate files
+
+
 
 
