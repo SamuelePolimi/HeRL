@@ -13,6 +13,8 @@ from herl.rl_analysis import bias_variance_estimate
 
 class PlotVisualizer(DictSerializable):
 
+    class_name = "plot_visualizer"
+
     def __init__(self, plot_class_id):
         """
         This class defines a visualizer. The visualizer exposes mainly two methods: compute and visualize.
@@ -52,6 +54,14 @@ class PlotVisualizer(DictSerializable):
     def _standard_heat_map(self, ax, **graphic_args):
         return ax.pcolormesh(self._data['x'], self._data['y'], self._data['z'] **graphic_args)
 
+    def _standard_general_plot(self, ax, **graphic_args):
+        if self._data['d'] == 1:
+            self._standard_plot(ax, **graphic_args)
+        elif self._data['d']:
+            self._standard_heat_map(ax, **graphic_args)
+        else:
+            raise Exception("_standard_general_plot can handle only one or tho dimensions.")
+
     def _standard_scatter(self, ax, **graphic_agrs):
         return ax.scatter(self._data['p_x'], self._data['p_y'], **graphic_agrs)
 
@@ -70,10 +80,54 @@ class PlotVisualizer(DictSerializable):
     def _get_dict(self):
         return self._data
 
+    def save(self, file_name):
+        self._check()
+        DictSerializable.save(self, file_name)
+
     @staticmethod
     def load_from_dict(**kwargs):
-        visualizer = ValueFunctionVisualizer()
+        name = kwargs['name']
+        if name == ValueFunctionVisualizer.class_name:
+            visualizer = ValueFunctionVisualizer()
+        elif name == QFunctionVisualizer.class_name:
+            visualizer = QFunctionVisualizer()
+        elif name == ReturnLandscape.class_name:
+            visualizer = ReturnLandscape()
+        else:
+            raise Exception("'%s' unknown." % name)
         visualizer._data = kwargs
+        visualizer._values = True
+        return visualizer
+
+    @staticmethod
+    def load(file_name):
+        """
+
+        :param file_name:
+        :param domain:
+        :return:
+        """
+        file = PlotVisualizer.load_fn(file_name)
+        return PlotVisualizer.load_from_dict(**file)
+
+
+class RowVisualizer(DictSerializable):
+
+    class_name = "row_visualizer"
+
+    def __init__(self, name):
+        DictSerializable.__init__(self, DictSerializable.get_numpy_save())
+        self.name = RowVisualizer.class_name
+        self.sub_visualizer = []
+
+    def _get_dict(self):
+        return {'sub_visualizer': [d.get_dict() for d in self.sub_visualizer],
+                'name': self.name}
+
+    @staticmethod
+    def load_from_dict(**kwargs):
+        visualizer = RowVisualizer(kwargs['name'])
+        visualizer.sub_visualizer = []
         visualizer._values = True
 
     @staticmethod
@@ -90,8 +144,10 @@ class PlotVisualizer(DictSerializable):
 
 class ValueFunctionVisualizer(PlotVisualizer):
 
+    class_name = "value_function_visualizer"
+
     def __init__(self):
-        PlotVisualizer.__init__(self, 'ValueFunction')
+        PlotVisualizer.__init__(self, ValueFunctionVisualizer.class_name)
 
     def compute(self, env: RLEnvironment, critic: Critic, discretization: Iterable = None):
         if env.state_space.shape[0] == 1:
@@ -114,18 +170,15 @@ class ValueFunctionVisualizer(PlotVisualizer):
 
     def visulize(self, ax: plt.Axes, **graphic_args: Any):
         self._check()
-        if self._data['d'] == 1:
-            return self._standard_plot(ax, **graphic_args)
-        elif self._data['d'] == 2:
-            return self._standard_heat_map(ax, **graphic_args)
-        else:
-            raise Exception("Compute or load the values")
+        self._standard_general_plot(ax, **graphic_args)
 
 
 class QFunctionVisualizer(PlotVisualizer):
 
+    class_name = "q_function_visualizer"
+
     def __init__(self):
-        PlotVisualizer.__init__(self, 'ValueFunction')
+        PlotVisualizer.__init__(self, QFunctionVisualizer.class_name)
 
     def compute(self, env: RLEnvironment, critic: Critic, discretization: Iterable = None):
         if env.state_space.shape[0] == 1 and env.action_space.shape[0] == 1:
@@ -146,6 +199,117 @@ class QFunctionVisualizer(PlotVisualizer):
         self._check()
         return self._standard_plot(ax, **graphic_args)
 
+
+class ReturnLandscape(PlotVisualizer):
+
+    class_name = "return_landscape_visualizer"
+
+    def __init__(self):
+        PlotVisualizer.__init__(self, ReturnLandscape.class_name)
+
+    def compute(self, critic, policy, indexes, low, high, discretization, **graphic_args):
+        ref_param = policy.get_parameters()
+        if len(indexes) == 1:
+            params = np.linspace(low[0], high[0], discretization[0])
+            y = []
+            for param in params.reshape(-1, 1):
+                new_params = ref_param.copy()
+                new_params[indexes[0]] = param
+                policy.set_parameters(new_params)
+                y.append(np.asscalar(critic.get_return()))
+                policy.set_parameters(ref_param)
+            self._data['d'] = 1
+            self._data['x'] = params
+            self._data['y'] = y
+        elif len(indexes) == 2:
+            x = np.linspace(low[0], high[0], discretization[0])
+            y = np.linspace(low[1], high[1], discretization[1])
+            X, Y = np.meshgrid(x, y)
+            Z = np.zeros_like(X)
+            for i in range(X.shape[0]):
+                for j in range(X.shape[1]):
+                    param = np.array([X[i, j], Y[i, j]])
+                    new_params = ref_param.copy()
+                    new_params[indexes[0]] = param[0]
+                    new_params[indexes[1]] = param[1]
+                    policy.set_parameters(new_params)
+                    Z[i, j] = np.asscalar(critic.get_return())
+                    policy.set_parameters(ref_param)
+            self._data['x'] = X
+            self._data['y'] = Y
+            self._data['z'] = Z
+            self._data['d'] = 2
+        else:
+            raise Exception("It is not possible to render an environment with state dimension greater than two.")
+        policy.set_parameters(ref_param)
+
+    def visulize(self, ax, **graphic_args):
+        self._check()
+        self._standard_general_plot(ax, **graphic_args)
+
+
+class StateCloudVisualizer(PlotVisualizer):
+
+    class_name = "state_cloud_visualizer"
+
+    def __init__(self):
+        PlotVisualizer.__init__(self, StateCloudVisualizer.class_name)
+
+    def compute(self, dataset: Dataset, **graphic_args):
+        """
+        Write on ax a scatter representing the dataset
+        :param ax:
+        :param dataset:
+        :param graphic_args:
+        :return:
+        """
+
+        if dataset.domain.get_variable("state").length == 1:
+            states = dataset.get_full()["state"]
+            self._data['p_x'] = states[:, 0]
+            self._data['p_y'] = np.zeros_like(self._data['x'])
+        elif dataset.domain.get_variable("state").length == 2:
+            states = dataset.get_full()["state"]
+            self._data['p_x'] = states[:, 0]
+            self._data['p_y'] = states[:, 1]
+
+    def visulize(self, ax: plt.Axes, **graphic_args):
+        self._check()
+        self._standard_scatter(ax, **graphic_args)
+
+
+class StateDensityVisualizer(PlotVisualizer):
+
+    class_name = "state_density_visualizer"
+
+    def __init__(self):
+        PlotVisualizer.__init__(self, StateDensityVisualizer.class_name)
+
+    def compute(self, environment, dataset, bandwidth, discretization):
+        if dataset.domain.get_variable("state").length == 1:
+            states = dataset.get_full()["state"]
+            kde = KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(states)
+            x_lin = np.linspace(environment.state_space.low[0], environment.state_space.high[0], discretization[0])
+            y = kde.score_samples(x_lin.reshape(-1, 1))
+            self._data['x'] = x_lin.ravel()
+            self._data['y'] = y.ravel()
+            self._data['d'] = 1
+        elif dataset.domain.get_variable("state").length == 2:
+            states = dataset.get_full()["state"]
+            kde = KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(states)
+            x = np.linspace(environment.state_space.low[0], environment.state_space.high[0], discretization[0])
+            y = np.linspace(environment.state_space.low[1], environment.state_space.high[1], discretization[1])
+            X, Y = np.meshgrid(x, y)
+            base = np.array([X.ravel(), Y.ravel()]).T
+            z = kde.score_samples(base)
+            self._data['x'] = X
+            self._data['y'] = Y
+            self._data['z'] = z.reshape(discretization[0], discretization[1])
+            self._data['d'] = 2
+
+    def visualize(self, ax: plt.Axes, **graphic_args):
+        self._check()
+        self._standard_general_plot(ax, **graphic_args)
 
 
 def plot_value(ax: plt.Axes, env: RLEnvironment, critic: Critic, discretization: Iterable=None, **graphic_args: Any):
@@ -258,7 +422,7 @@ def plot_state_cloud(ax, dataset, **graphic_args):
         states = dataset.get_full()["state"]
         x = states[:, 0]
         ax.plot(x, np.zeros_like(x), **graphic_args)
-    elif dataset.domain.get_variable("state").length ==2:
+    elif dataset.domain.get_variable("state").length == 2:
         states = dataset.get_full()["state"]
         ax.scatter(states[:, 0], states[:, 1], **graphic_args)
 
@@ -335,8 +499,7 @@ def plot_return_row(axs, analyzer, indxs, radius=0.5, discretization=50,
         ax.set_xlabel(r"$\theta_{%d}$" % ind)
 
 
-def plot_gradient_row(axs, analyzer, indxs, ret, gradient=None, scale=0.2,
-                      **graphics_args):
+def plot_gradient_row(axs, analyzer, indxs, ret, gradient=None, scale=0.2, **graphics_args):
     """
     Plot a row of gradients with their return landscape.
 
