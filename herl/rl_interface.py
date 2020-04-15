@@ -290,8 +290,9 @@ class RLTask:
 
 class RLAgent:
 
-    def __init__(self, deterministic=False):
+    def __init__(self, deterministic=False, symbol=r"\pi"):
         self._deterministic = deterministic
+        self.symbol = symbol
 
     def __call__(self, state, differentiable=False):
         pass

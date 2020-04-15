@@ -37,10 +37,10 @@ class LQR(RLEnvironment):
         self._d = A.shape[0]
         super().__init__(InfoBox(-state_box, state_box,
                                  ["Dimension %d" % i for i in range(self._d)],
-                                 [r"$x_{%i}$" % i for i in range(self._d)]),
+                                 [r"x_{%i}" % i for i in range(self._d)]),
                          InfoBox(-action_box, action_box,
                                  ["Torque applied to dimension %d" % i for i in range(self._d)],
-                                 [r"$u_{%i}$" % i for i in range(self._d)]),
+                                 [r"u_{%i}" % i for i in range(self._d)]),
                          None, settable=True, deterministic=True,
                          init_deterministic=init_det)
         self._state_box = state_box
@@ -79,7 +79,7 @@ class Pendulum2D(RLEnvironment):
     def __init__(self, initial_state=None):
         init_det = initial_state is not None
         super().__init__(InfoBox(np.array([-np.pi, -8.]), np.array([np.pi, 8.]),
-                                 ["Angle of the pendulum", "Angular Velocity"], [r"$\theta$", r"$\dot{\theta}$"]),
+                                 ["Angle of the pendulum", "Angular Velocity"], [r"\theta", r"\dot{\theta}"]),
                             InfoBox(np.array([-2.]), np.array([2.]), ["Torque applied"], ["F"]),
                             lambda: gym.make("Pendulum-v0"), settable=True, deterministic=True,
                             init_deterministic=init_det)

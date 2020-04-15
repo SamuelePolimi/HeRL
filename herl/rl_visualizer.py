@@ -5,7 +5,7 @@ from multiprocessing.pool import ThreadPool as Pool
 from sklearn.neighbors import KernelDensity
 from typing import Callable, Any, Iterable
 
-from herl.rl_interface import Critic, RLEnvironment, PolicyGradient, RLEnvironmentDescriptor
+from herl.rl_interface import Critic, RLEnvironment, PolicyGradient, RLEnvironmentDescriptor, RLAgent
 from herl.dataset import Dataset
 from herl.dict_serializable import DictSerializable
 from herl.rl_analysis import bias_variance_estimate
@@ -14,6 +14,7 @@ from herl.rl_analysis import bias_variance_estimate
 class PlotVisualizer(DictSerializable):
 
     class_name = "plot_visualizer"
+    load_fn = DictSerializable.get_numpy_load()
 
     def __init__(self, plot_class_id):
         """
@@ -39,7 +40,7 @@ class PlotVisualizer(DictSerializable):
         """
         raise NotImplemented()
 
-    def visulize(self, *args, **kwargs):
+    def visualize(self, *args, **kwargs):
         """
         This method produces the actual plot, once the data has been computed.
         :param args:
@@ -52,13 +53,13 @@ class PlotVisualizer(DictSerializable):
         return ax.plot(self._data['x'], self._data['y'], **graphic_args)
 
     def _standard_heat_map(self, ax, **graphic_args):
-        return ax.pcolormesh(self._data['x'], self._data['y'], self._data['z'] **graphic_args)
+        return ax.pcolormesh(self._data['x'], self._data['y'], self._data['z'], **graphic_args)
 
     def _standard_general_plot(self, ax, **graphic_args):
         if self._data['d'] == 1:
-            self._standard_plot(ax, **graphic_args)
+            return self._standard_plot(ax, **graphic_args)
         elif self._data['d']:
-            self._standard_heat_map(ax, **graphic_args)
+            return self._standard_heat_map(ax, **graphic_args)
         else:
             raise Exception("_standard_general_plot can handle only one or tho dimensions.")
 
@@ -93,6 +94,8 @@ class PlotVisualizer(DictSerializable):
             visualizer = QFunctionVisualizer()
         elif name == ReturnLandscape.class_name:
             visualizer = ReturnLandscape()
+        elif name == PolicyVisualizer.class_name:
+            visualizer = PolicyVisualizer()
         else:
             raise Exception("'%s' unknown." % name)
         visualizer._data = kwargs
@@ -104,31 +107,59 @@ class PlotVisualizer(DictSerializable):
         """
 
         :param file_name:
-        :param domain:
         :return:
         """
         file = PlotVisualizer.load_fn(file_name)
         return PlotVisualizer.load_from_dict(**file)
+
+    def visualize_x_label(self, ax):
+        self._check()
+        ax.set_xlabel(self._data['x_label'])
+
+    def visualize_y_label(self, ax):
+        self._check()
+        ax.set_ylabel(self._data['y_label'])
+
+    def visualize_title(self, ax):
+        self._check()
+        ax.set_title(self._data['title'])
 
 
 class RowVisualizer(DictSerializable):
 
     class_name = "row_visualizer"
 
-    def __init__(self, name):
+    def __init__(self, name: str, *sub_visualizer: PlotVisualizer):
         DictSerializable.__init__(self, DictSerializable.get_numpy_save())
-        self.name = RowVisualizer.class_name
-        self.sub_visualizer = []
+        self.name = name
+        self.sub_visualizer = list(sub_visualizer)  # TODO: check if instead is list(*sub_visualizer)
+
+    def compute_i(self, i: int, *args, **kwargs):
+        self.sub_visualizer[i].compute(*args, **kwargs)
+
+    def visualize(self, axs: Iterable[plt.Axes], **kwargs: Any):
+        ret = []
+        for ax, visualizer in zip(axs, self.sub_visualizer):
+            ret.append(visualizer.visualize(ax, **kwargs))
+        return ret
 
     def _get_dict(self):
-        return {'sub_visualizer': [d.get_dict() for d in self.sub_visualizer],
+        return {'sub_visualizer': [d._get_dict() for d in self.sub_visualizer],
                 'name': self.name}
 
     @staticmethod
     def load_from_dict(**kwargs):
         visualizer = RowVisualizer(kwargs['name'])
-        visualizer.sub_visualizer = []
-        visualizer._values = True
+        visualizer.sub_visualizer = [PlotVisualizer.load_from_dict(v) for v in kwargs['sub_visualizers']]
+
+    def visualize_decorations(self, axs: Iterable[plt.Axes]):
+        y_label = ""
+        for ax, visualizer in zip(axs, self.sub_visualizer):
+            if visualizer._data["y_label"] != y_label:
+                visualizer.visualize_y_label(ax)
+            visualizer.visualize_title(ax)
+            visualizer.visualize_x_label(ax)
+            y_label = visualizer._data["y_label"]
 
     @staticmethod
     def load(file_name):
@@ -155,8 +186,11 @@ class ValueFunctionVisualizer(PlotVisualizer):
             self._data['x'] = np.linspace(env.state_space.low[0], env.state_space.high[0], discretization[0])
             pool = Pool(mp.cpu_count())
             self._data['y'] = pool.map(critic.get_V, self._data['x'].reshape(-1, 1))
+            self._data['x_label'] = r"$%s$" % env.state_space.symbol[0]
+            self._data['y_label'] = r"$V_{%s}(%s)$" % (critic.name, env.state_space.symbol[0])
+            self._data['title'] = ""
         elif env.state_space.shape[0] == 2:
-            self._data['d'] = 1
+            self._data['d'] = 2
             dataset = env.get_grid_dataset(discretization)
             states = dataset.get_full()["state"]
             results = critic.get_V(states)
@@ -164,11 +198,14 @@ class ValueFunctionVisualizer(PlotVisualizer):
             self._data['z'] = np.array(results).reshape(*shape)
             self._data['x'] = states[:, 0].reshape(*shape)
             self._data['y'] = states[:, 1].reshape(*shape)
+            self._data['x_label'] = r"$%s$" % env.state_space.symbol[0]
+            self._data['y_label'] = r"$%s$" % env.state_space.symbol[1]
+            self._data['title'] = "$V_{%s}(%s, %s)$" % (critic.name, env.state_space.symbol[0], env.state_space.symbol[1])
         else:
             raise Exception("State space must be one or two dimensional.")
         self._values = True
 
-    def visulize(self, ax: plt.Axes, **graphic_args: Any):
+    def visualize(self, ax: plt.Axes, **graphic_args: Any):
         self._check()
         self._standard_general_plot(ax, **graphic_args)
 
@@ -190,14 +227,56 @@ class QFunctionVisualizer(PlotVisualizer):
             self._data['x'] = np.array(self._data['x']).reshape(*shape)
             self._data['y'] = np.array(self._data['y']).reshape(*shape)
             self._data['z'] = np.array(self._data['z']).reshape(*shape)
+            self._data['x_label'] = r"$%s$" % env.state_space.symbol[0]
+            self._data['y_label'] = r"$%s$" % env.action_space.symbol[0]
+            self._data['title'] = "$Q_{%s}(%s, %s)$" % (critic.name, env.state_space.symbol[0], env.action_space.symbol[0])
         else:
             raise Exception(
                 "It is not possible to render an environment with total space (state + action) greater than two.")
         self._values = True
 
-    def visulize(self, ax: plt.Axes, **graphic_args: Any):
+    def visualize(self, ax: plt.Axes, **graphic_args: Any):
         self._check()
         return self._standard_plot(ax, **graphic_args)
+
+
+class PolicyVisualizer(PlotVisualizer):
+
+    class_name = "policy_visualizer"
+
+    def __init__(self):
+        PlotVisualizer.__init__(self, PolicyVisualizer.class_name)
+
+    def compute(self, env: RLEnvironment, policy: RLAgent, discretization: Iterable = None):
+        if env.state_space.shape[0] == 1 and env.action_space.shape[0] == 1 and policy.is_deterministic():
+            dataset = env.get_grid_dataset(discretization[0:1])
+            ds = dataset.get_full()
+            self._data['x'] = ds["state"]
+            self._data['y'] = policy(self._data['x'])
+            self._data['x_label'] = r"$%s$" % env.state_space.symbol[0]
+            self._data['y_label'] = r"$%s(%s)$" % (policy.symbol, env.state_space.symbol[0])
+            self._data['title'] = ""
+            self._data['d'] = 1
+        elif env.state_space.shape[0] == 2 and env.action_space.shape[0] == 1 and policy.is_deterministic():
+            dataset = env.get_grid_dataset(discretization[0:2])
+            ds = dataset.get_full()
+            states = ds["state"]
+            self._data['x'] = ds["state"][:, 0].reshape(discretization[0], discretization[1])
+            self._data['y'] = ds["state"][:, 1].reshape(discretization[0], discretization[1])
+            self._data['z'] = policy(states).reshape(discretization[0], discretization[1])
+            self._data['x_label'] = r"$%s$" % env.state_space.symbol[0]
+            self._data['y_label'] = r"$%s$" % env.state_space.symbol[1]
+            self._data['title'] = r"$%s(%s, %s)$" % (policy.symbol, env.state_space.symbol[0],
+                                                     env.state_space.symbol[1])
+            self._data['d'] = 2
+        else:
+            raise Exception("At the current moment, we are only able to represent deterministic policies "
+                            "(one or two state dimensions).")
+        self._values = True
+
+    def visualize(self, ax: plt.Axes, **graphic_args: Any):
+        self._check()
+        return self._standard_general_plot(ax, **graphic_args)
 
 
 class ReturnLandscape(PlotVisualizer):
@@ -242,8 +321,9 @@ class ReturnLandscape(PlotVisualizer):
         else:
             raise Exception("It is not possible to render an environment with state dimension greater than two.")
         policy.set_parameters(ref_param)
+        self._values = True
 
-    def visulize(self, ax, **graphic_args):
+    def visualize(self, ax, **graphic_args):
         self._check()
         self._standard_general_plot(ax, **graphic_args)
 
@@ -272,8 +352,9 @@ class StateCloudVisualizer(PlotVisualizer):
             states = dataset.get_full()["state"]
             self._data['p_x'] = states[:, 0]
             self._data['p_y'] = states[:, 1]
+        self._values = True
 
-    def visulize(self, ax: plt.Axes, **graphic_args):
+    def visualize(self, ax: plt.Axes, **graphic_args):
         self._check()
         self._standard_scatter(ax, **graphic_args)
 
@@ -310,6 +391,21 @@ class StateDensityVisualizer(PlotVisualizer):
     def visualize(self, ax: plt.Axes, **graphic_args):
         self._check()
         self._standard_general_plot(ax, **graphic_args)
+
+
+class ValueRowVisualizer(RowVisualizer):
+
+    class_name = "value_row_visualizer"
+
+    def __init__(self):
+        RowVisualizer.__init__(self, ValueRowVisualizer.class_name)
+
+    def compute(self, env: RLEnvironment, critics: Iterable[Critic], discretizations: Iterable[np.ndarray]):
+        for critic, discretization in zip(critics, discretizations):
+            visualizer = ValueFunctionVisualizer()
+            visualizer.compute(env, critic, discretization)
+            self.sub_visualizer.append(visualizer)
+
 
 
 def plot_value(ax: plt.Axes, env: RLEnvironment, critic: Critic, discretization: Iterable=None, **graphic_args: Any):
