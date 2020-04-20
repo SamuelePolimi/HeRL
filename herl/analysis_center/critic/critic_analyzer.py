@@ -1,13 +1,10 @@
-import torch, numpy as np
+import numpy as np
 import matplotlib.pyplot as plt
-from typing import Union
 
-from herl.actor import NeuralNetworkPolicy
-from herl.dataset import Dataset, Domain, Variable
-from herl.rl_interface import RLTask, Critic, Online, PolicyGradient, Offline
-from herl.classic_envs import Pendulum2D
-from herl.rl_analysis import MCAnalyzer, BaseAnalyzer, bias_variance_estimate
-from herl.rl_visualizer import plot_value, plot_value_row, plot_state_distribution, plot_state_cloud, RowVisualizer, ValueFunctionVisualizer
+from herl.rl_interface import RLTask
+from herl.rl_analysis import BaseAnalyzer, bias_variance_estimate
+from herl.rl_visualizer import RowVisualizer, ValueFunctionVisualizer, BiasVarianceVisualizer, EstimatesVisualizer, \
+    SingleEstimatesVisualizer
 
 
 class CriticAnalyzer(BaseAnalyzer):
@@ -42,15 +39,40 @@ class CriticAnalyzer(BaseAnalyzer):
         value_row_visualizer.visualize(axs)
         self.show()
 
-    def bias_variance_return(self, dataset_generator, policy, abs_confidence=10.):
+    def visualize_return_estimates(self, ground_truth, policy, dataset_generator):
+        row = RowVisualizer("return_estimates")
+        for algorithm in self.algorithm_constructors:
+            visualizer = SingleEstimatesVisualizer()
+            estimator = lambda: algorithm(self.task.get_descriptor(), policy, dataset_generator())
+            visualizer.compute(estimator, ground_truth)
+            row.sub_visualizer.append(visualizer)
+        fig, axs = plt.subplots(1, len(self.algorithm_constructors))
+        row.visualize(axs)
+        self.show()
+
+    def visualize_parametrized_return_estimates(self, ground_truth, policy, dataset_generator, parameters):
+        row = RowVisualizer("return_estimates")
+        for algorithm in self.algorithm_constructors:
+            visualizer = EstimatesVisualizer()
+            estimator = lambda x: algorithm(self.task.get_descriptor(), policy, dataset_generator(x))
+            visualizer.compute(estimator, ground_truth, parameters)
+            row.sub_visualizer.append(visualizer)
+        fig, axs = plt.subplots(1, len(self.algorithm_constructors))
+        row.visualize(axs)
+        self.show()
+
+    def visualize_bias_variance(self, ground_truth, policy, dataset_generator, parameters):
+        pass
+
+
+    def bias_variance_return(self, dataset_generator, policy, ground_truth, abs_confidence=10.):
         self.print("We use different datasets generated with a random policy, and evaluate the bias and the variance of "
                    "the return's estimator.")
-        ret = self.reference.get_return()
         names = [constructor(task=self.tak_descriptor, dataset=dataset_generator(), policy=policy).name
                  for constructor in self.algorithm_constructors]
         algos = [lambda: constructor(task=self.tak_descriptor, dataset=dataset_generator(), policy=policy).get_return()
                  for constructor in self.algorithm_constructors]
-        estimates = [bias_variance_estimate(ret, alg, abs_confidence=abs_confidence) for alg in algos]
+        estimates = [bias_variance_estimate(ground_truth, alg, abs_confidence=abs_confidence) for alg in algos]
         fig, ax = plt.subplots(1, len(names))
         for (bias, variance, estimates, _), name in zip(estimates, names):
             ax.set_title("%s estimate" % name)
@@ -59,7 +81,7 @@ class CriticAnalyzer(BaseAnalyzer):
             ax.set_xlim(0, 2)
             ax.set_xticks([])
             ax.scatter(np.ones_like(estimates)*1.1, estimates, s=10, c="green", label="Estimates")
-            ax.scatter(1.1, ret, s=15, c="orange", label="Ground truth")
+            ax.scatter(1.1, ground_truth, s=15, c="orange", label="Ground truth")
             ax.legend(loc="best")
             self.print("Estimator %s has a bias of %f and variance of %f with confidence of 95%%."\
                        % (name, bias, variance))

@@ -46,10 +46,8 @@ class NeuralNetwork(nn.Module):
         :type x: tensor
         :return: Tensor of shape len(x)*output_dim
         """
-        x = x.to(dtype=torch_type)
-        l_network = len(self.hidden)
-        for (i, linear_transform) in list(zip(range(l_network), self.hidden))[:-1]:
-            x = self.act_functions[i](linear_transform(x))
+        for f, linear_transform in zip(self.act_functions, self.hidden):
+            x = f(linear_transform(x))
         if self.out_function is None:
             x = self.hidden[-1](x)
         else:
@@ -61,13 +59,14 @@ class NeuralNetworkPolicy(RLAgent, NeuralNetwork):
 
     def __init__(self, h_layers, act_functions, rl_task, output_function=None):
         RLAgent.__init__(self, deterministic=True)
-        NeuralNetwork.__init__(self, h_layers, act_functions, rl_task, output_function)
+        self.net = NeuralNetwork.__init__(self, h_layers, act_functions, rl_task, output_function)
 
     def __call__(self, state, differentiable=False):
         if differentiable:
             return NeuralNetwork.__call__(self, state)
         else:
-            return NeuralNetwork.__call__(self, torch.tensor(state, dtype=torch_type)).detach().numpy()
+            with torch.no_grad():
+                return NeuralNetwork.__call__(self, torch.from_numpy(state)).numpy()
 
     def get_action(self, state):
         return NeuralNetwork.__call__(self, torch.tensor(state, dtype=torch_type)).detach().numpy()

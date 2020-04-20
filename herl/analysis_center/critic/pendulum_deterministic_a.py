@@ -7,14 +7,13 @@ import matplotlib.pyplot as plt
 import os
 
 from herl.actor import NeuralNetworkPolicy, UniformPolicy
-from herl.dataset import Dataset, Domain, Variable
-from herl.rl_interface import RLTask, Critic, Online, PolicyGradient, Offline
+from herl.rl_interface import RLTask
 from herl.classic_envs import Pendulum2D
 from herl.rl_analysis import MCAnalyzer
-from herl.rl_visualizer import sample_vs_bias_variance, ValueFunctionVisualizer, PlotVisualizer, PolicyVisualizer,\
-    RowVisualizer
+from herl.rl_visualizer import sample_vs_bias_variance, ValueFunctionVisualizer, PlotVisualizer
 from herl.analysis_center.critic.critic_analyzer import CriticAnalyzer
 from herl.solver import RLCollector
+from herl.rl_analysis import Printable
 
 task = RLTask(Pendulum2D(np.array([np.pi, 0.])), gamma=0.95, max_episode_length=200)
 
@@ -29,21 +28,24 @@ def _new_network():
     return NeuralNetworkPolicy([50], [torch.relu], task, lambda x: 2 * torch.tanh(x))
 
 
-def _generate_neural_network():
-    policy = _new_network()
-    policy.save_model(_get_path("../../models/rnd_det_pendulum_a.torch"))
-    return policy
+def _generate_neural_networks():
+    policies = [_new_network() for _ in range(10)]
+    for i, policy in enumerate(policies):
+        policy.save_model(_get_path("pendulum_deterministic_data/agents/rnd_det_pendulum_%d.torch" % i))
+    return policies
 
 
-def _load_neural_network():
-    policy = _new_network()
-    policy.load_model(_get_path("../../models/rnd_det_pendulum_a.torch"))
-    return policy
+def _load_neural_networks():
+    policies = [_new_network() for _ in range(10)]
+    for i, policy in enumerate(policies):
+        policy.load_model(_get_path("pendulum_deterministic_data/agents/rnd_det_pendulum_%d.torch" % i))
+    return policies
 
 
-class Reset:
+class Reset(Printable):
 
     def __init__(self):
+        Printable.__init__(self, "Reset")
         self.policy = None
 
     def reset(self):
@@ -57,44 +59,23 @@ class Reset:
 
     def reset_policy(self):
         print("Policy reset.")
-        self.policy = _generate_neural_network()
+        self.policies = _generate_neural_networks()
 
     def reset_value_function(self):
         print("Value reset.")
-        analyzer = MCAnalyzer(task, self.policy)
-        visualizer = ValueFunctionVisualizer()
-        visualizer.compute(task.environment, analyzer, np.array([200, 200]))
-        visualizer.save(_get_path("../../plots/pendulum_deterministic_value.npz"))
-        # visualizer = PlotVisualizer.load(_get_path("../../plots/pendulum_deterministic_value.npz"))
-        # ax = plt.subplot()
-        # visualizer.visulize(ax)
-        # plt.show()
-        # dataset = task.environment.get_grid_dataset(np.array([100, 100]))
-        # states = dataset.get_full()["state"]
-        # results = analyzer.get_V(states)
-        # dataset = Dataset(Domain(Variable("state", 2), Variable("value", 1)), n_max_row=results.shape[0])
-        # dataset.notify_batch(state=states, value=results)
-        # dataset.save(_get_path("../../datasets/pendulum2d/rnd_det.npz"))
+        bar = self.get_progress_bar("Compute values", 10)
+        for i, policy in enumerate(self.policies):
+            bar.notify()
+            analyzer = MCAnalyzer(task, policy)
+            visualizer = ValueFunctionVisualizer()
+            visualizer.compute(task.environment, analyzer, np.array([200, 200]))
+            visualizer.save(_get_path("pendulum_deterministic_data/plots/pendulum_deterministic_value_%d.npz" % i))
 
 
-class SavedAnalyzer(Critic, Online, PolicyGradient):
+reset = Reset()
+reset.reset()
 
-    def __init__(self, task, policy):
-        Critic.__init__(self, "MC")
-        Online.__init__(self, "MC", task)
-        PolicyGradient.__init__(self, "MC", policy)
-
-    def get_V(self, states):
-        dataset = Dataset.load(_get_path("../../datasets/pendulum2d/rnd_det.npz"),
-                               Domain(Variable("state", 2), Variable("value", 1)))
-        return dataset.get_full()["value"]
-
-    def get_return(self):
-        analyzer = MCAnalyzer(task, self.policy)
-        return analyzer.get_return()
-
-
-policy = _load_neural_network()
+policies = _load_neural_networks()
 
 
 class Pendulum2DCriticAnalyzer(CriticAnalyzer):
@@ -111,7 +92,7 @@ class Pendulum2DCriticAnalyzer(CriticAnalyzer):
         :param algorithm_constructors:
         """
         CriticAnalyzer.__init__(self, task, algorithm_constructors)
-        self.policy = policy
+        self.policies = policies
         self.print("""Pendulum2DCriticAnalyzer.
         The purpose of this analyzer is to evaluate the critic estimation of a deterministic 2D pendulum.""")
 
@@ -125,16 +106,19 @@ class Pendulum2DCriticAnalyzer(CriticAnalyzer):
     def visualize_value_small_uniform_dataset(self, *discretization, **graphic_args):
         self.print("The dataset is generated on a grid of values 25x25x2 (angle, velocity, action).")
         dataset = task.environment.get_grid_dataset(states=np.array([25, 25]), actions=np.array([2]), step=True)
-
-        self.visualize_value(PlotVisualizer.load(_get_path("../../plots/pendulum_deterministic_value.npz")),
-                             dataset, self.policy, *discretization, **graphic_args)
+        for i, policy in enumerate(self.policies):
+            self.visualize_value(PlotVisualizer.load(
+                _get_path("pendulum_deterministic_data/plots/pendulum_deterministic_value_%d.npz" % i)),
+                                 dataset, policy, *discretization, **graphic_args)
 
     def visualize_value_large_uniform_dataset(self, *discretization, **graphic_args):
         self.print("The dataset is generated on a grid of values 50x50x3 (angle, velocity, action).")
         dataset = task.environment.get_grid_dataset(states=np.array([50, 50]), actions=np.array([3]), step=True)
 
-        self.visualize_value(PlotVisualizer.load(_get_path("../../plots/pendulum_deterministic_value.npz")),
-                             dataset, self.policy, *discretization, **graphic_args)
+        for i, policy in enumerate(self.policies):
+            self.visualize_value(PlotVisualizer.load(
+                _get_path("pendulum_deterministic_data/plots/pendulum_deterministic_value_%d.npz" % i)),
+                dataset, policy, *discretization, **graphic_args)
 
     def visualize_value_random_policy_dataset(self, *discretization, **graphic_args):
         self.print("The dataset is generated with rollout starting half o "
@@ -146,8 +130,10 @@ class Pendulum2DCriticAnalyzer(CriticAnalyzer):
         collector = RLCollector(dataset, random_start_task, uniform_policy)
         collector.collect_rollouts(int(n_rollout))
 
-        self.visualize_value(PlotVisualizer.load(_get_path("../../plots/pendulum_deterministic_value.npz")),
-                             dataset.train_ds, self.policy, *discretization, **graphic_args)
+        for i, policy in enumerate(self.policies):
+            self.visualize_value(PlotVisualizer.load(
+                _get_path("pendulum_deterministic_data/plots/pendulum_deterministic_value_%d.npz" % i)),
+                dataset, policy, *discretization, **graphic_args)
 
     def offpolicy_bias_variance_estimates(self):
         self.print("The dataset is generated with rollout starting from random position"

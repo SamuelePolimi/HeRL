@@ -8,7 +8,7 @@ from herl.dataset import Dataset, Domain, Variable
 from herl.rl_interface import RLTask, Critic, Online, PolicyGradient, Offline
 from herl.classic_envs import Pendulum2D
 from herl.rl_analysis import MCAnalyzer, BaseAnalyzer, bias_variance_estimate
-from herl.rl_visualizer import plot_value, plot_value_row, plot_state_distribution, plot_state_cloud, plot_gradient_row, plot_return_row
+from herl.rl_visualizer import plot_gradient_row, plot_return_row
 
 
 class GradientAnalyzer(BaseAnalyzer):
