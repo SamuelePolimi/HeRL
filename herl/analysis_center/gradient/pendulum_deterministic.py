@@ -6,7 +6,7 @@ import torch, numpy as np
 import matplotlib.pyplot as plt
 import os
 
-from herl.actor import NeuralNetworkPolicy
+from herl.actor import NeuralNetworkPolicy, UniformPolicy
 from herl.rl_interface import RLTask
 from herl.classic_envs import Pendulum2D
 from herl.rl_analysis import MCAnalyzer
@@ -130,17 +130,32 @@ class Pendulum2DGradientAnalyzer(GradientAnalyzer):
     def onpolicy_bias_variance_estimates(self, confidence=5):
         self.print("The dataset is generated with rollout starting from the bottom position (as prescribed in the task)"
                    "and following the evaluation policy")
-        n_rollout = 1
-        random_start_task = RLTask(Pendulum2D(), gamma=0.95, max_episode_length=200)
 
-        for policy in self.policies:
-            def get_dataset():
-                dataset = self.task.get_empty_dataset(n_max_row=n_rollout * self.task.max_episode_length)
+        for ground_truth, policy in zip(self.gradients, self.policies):
+            def get_dataset(n):
+                random_start_task = RLTask(Pendulum2D(), gamma=0.95, max_episode_length=200)
+                dataset = self.task.get_empty_dataset(n_max_row=int(n))
                 collector = RLCollector(dataset, random_start_task, policy)
-                collector.collect_rollouts(int(n_rollout))
+                collector.collect_samples(int(n))
                 return dataset.train_ds
-            analyzer = MCAnalyzer(self.task, policy)
-            ground_truth = analyzer.get_return()
-            self.bias_variance_return(get_dataset, policy, ground_truth, abs_confidence=confidence)
+            self.visualize_bias_variance_gradient(ground_truth, policy, get_dataset, parameters=[200, 500, 1000, 2000],
+                                                  confidence=confidence,
+                                                  max_samples=100)
+            self.show()
 
+    def offpolicy_bias_variance_estimates(self, confidence=5):
+        self.print("The dataset is generated with rollout starting from the bottom position (as prescribed in the task)"
+                   "and following the evaluation policy")
 
+        for ground_truth, policy in zip(self.gradients, self.policies):
+            def get_dataset(n):
+                random_start_task = RLTask(Pendulum2D(), gamma=0.95, max_episode_length=200)
+                dataset = self.task.get_empty_dataset(n_max_row=int(n))
+                collector = RLCollector(dataset, random_start_task, UniformPolicy(np.array([-2]), np.array([2])))
+                collector.collect_samples(int(n))
+                return dataset.train_ds
+            self.visualize_bias_variance_gradient(ground_truth, policy, get_dataset, parameters=[100, 200, 500, 1000,
+                                                                                                 2000, 3000, 4000],
+                                                  confidence=confidence,
+                                                  max_samples=100)
+            self.show()

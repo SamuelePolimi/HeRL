@@ -492,7 +492,6 @@ class EstimatesVisualizer(PlotVisualizer):
         y_mean = []
         y_std = []
         for x in x_values:
-            print(x)
             bias, variance, estimates, title = \
                 bias_variance_estimate(ground_truth, estimator(x), confidence, min_samples, max_samples)
             x_scatter += [x] * len(estimates)
@@ -539,29 +538,31 @@ class BiasVarianceVisualizer(PlotVisualizer):
                 estimate_symbol: str = "",
                 hyperparameter_symbol: str = "",
                 title: str = ""):
-        y_scatter = []
-        x_scatter = []
-        y_mean = []
-        y_std = []
+        y_bias = []
+        y_variance = []
         for x in x_values:
-            print(x)
             bias, variance, estimates, title = \
                 bias_variance_estimate(ground_truth, estimator(x), confidence, min_samples, max_samples)
-            x_scatter += [x] * len(estimates)
-            y_scatter += estimates
-            y_mean.append(np.mean(estimates))
-            y_std.append(np.std(estimates))
+            print()
+            bias = np.mean(bias**2)
+            variance = np.mean(variance)
+            y_bias.append(bias)
+            y_variance.append(variance)
 
         self._data["x_label"] = hyperparameter_symbol
         self._data["y_label"] = estimate_symbol
         self._data["title"] = "Pinco Pallino"
-        self._data["truth"] = ground_truth
-        self._data["p_x"] = np.array(x_scatter)
-        self._data["p_y"] = np.array(y_scatter)
-        self._data["std"] = 2 * np.array(y_std)
         self._data["x"] = np.array(x_values)
-        self._data["y"] = np.array(y_mean)
+        self._data["y_bias"] = np.array(y_bias)
+        self._data["y_variance"] = np.array(y_variance)
+        self._data["y_mse"] = np.array(y_variance) + np.array(y_bias)
         self._values = True
+
+    def visualize(self, ax:plt.Axes, **graphic_args):
+        ax.plot(self._data['x'], self._data['y_bias'], label=r"${Bias}^2$")
+        ax.plot(self._data['x'], self._data['y_variance'], label=r"$Variance$")
+        ax.plot(self._data['x'], self._data['y_mse'], label=r"$MSE$")
+        ax.legend(loc='best')
 
 
 class ValueRowVisualizer(RowVisualizer):

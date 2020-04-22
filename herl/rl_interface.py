@@ -1,5 +1,6 @@
 import numpy as np
 from gym.spaces import Box
+from typing import Iterable
 
 from herl.dataset import Domain, Variable, MLDataset, Dataset
 from herl.config import np_type
@@ -90,10 +91,22 @@ class RLEnvironment(RLEnvironmentDescriptor):
         return self._settable
 
     def copy(self):
-       return  RLEnvironment(self.state_space, self.action_space, self._env_creator, self._settable,
+       return RLEnvironment(self.state_space, self.action_space, self._env_creator, self._settable,
                              self._deterministic, self._init_deterministic)
 
-    def get_grid_dataset(self, states, actions=None, step=False):
+    def get_grid_dataset(self, states: Iterable[int], actions: Iterable[int]=None, step: bool=False) -> Dataset:
+        """
+        It returns a dataset discretized based on number of states or states and actions.
+        When step = True, the method will return a dataset with also reward, next states, and terminal infornmation.
+        For example
+        :param states: The number of discretization of the states per dimension.
+        :param actions: The number of discretization for the actions per dimension.
+        When set to 'None', the action will not be discretized.
+        :param step: This flag, when activated, provides a classical RL dataset, with states, actions, next states,
+        and so on. However, when reward, next_states, and terminal information, then we can turn this flag off.
+        :return:
+        """
+        # TODO is 'initial' flag necessary?
         grid = [np.linspace(self.state_space.low[i], self.state_space.high[i],
                      states[i]) for i in range(self.state_dim)]
         if actions is not None:

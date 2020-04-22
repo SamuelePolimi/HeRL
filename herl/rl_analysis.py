@@ -1,7 +1,7 @@
 import numpy as np
 import multiprocessing as mp
 from multiprocessing.pool import ThreadPool as Pool
-from typing import Callable, Tuple, List
+from typing import Callable, Tuple, List, Union
 
 from herl.rl_interface import RLTask, RLAgent, Critic, PolicyGradient, Actor, Online
 from herl.utils import Printable
@@ -81,9 +81,9 @@ class MCAnalyzer(Critic, PolicyGradient, Online):
         return grad
 
 
-def bias_variance_estimate(ground_thruth: float, estimator_sampler: Callable,
+def bias_variance_estimate(ground_thruth: Union[float, np.ndarray], estimator_sampler: Callable,
                            abs_confidence: float = 1E-1, min_samples: int = 10, max_sample: int = 20)\
-        -> Tuple[float, float, List[float], float]:
+        -> Tuple[np.ndarray, np.ndarray, List[np.ndarray], float]:
     """
 
     :param ground_thruth:
@@ -105,8 +105,8 @@ def bias_variance_estimate(ground_thruth: float, estimator_sampler: Callable,
     for estimate in estimate_list:
         variance_list.append((mean_estimate-estimate)**2)
 
-    variance_estimate = np.asscalar(np.mean(variance_list, axis=0))
-    bias_estimate = np.asscalar(mean_estimate - ground_thruth)
+    variance_estimate = np.mean(variance_list, axis=0)
+    bias_estimate = mean_estimate - ground_thruth
 
     return bias_estimate, variance_estimate, estimate_list, current_std
 
