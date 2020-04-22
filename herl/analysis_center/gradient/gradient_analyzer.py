@@ -8,12 +8,12 @@ from herl.dataset import Dataset, Domain, Variable
 from herl.rl_interface import RLTask, Critic, Online, PolicyGradient, Offline
 from herl.classic_envs import Pendulum2D
 from herl.rl_analysis import MCAnalyzer, BaseAnalyzer, bias_variance_estimate
-from herl.rl_visualizer import plot_gradient_row, plot_return_row
+from herl.rl_visualizer import GradientEstimateVisualizer, RowVisualizer
 
 
 class GradientAnalyzer(BaseAnalyzer):
 
-    def __init__(self, task, reference, algorithm_constructors, verbose=True):
+    def __init__(self, task, algorithm_constructors, verbose=True):
         """
         This class analyzes the most important quantities for a critic.
         :param task:
@@ -21,9 +21,9 @@ class GradientAnalyzer(BaseAnalyzer):
         """
         BaseAnalyzer.__init__(self, verbose, True)
         self.task = task
-        self.reference = reference
         self.tak_descriptor = task.get_descriptor()
         self.algorithm_constructors = algorithm_constructors
+        self._n_algorithms = len(self.algorithm_constructors)
 
     def visualize_gradient(self, dataset, policy, param_indexes, discretization_reference=50, radius=0.5,
                            discretization=50, **graphic_args):
@@ -42,6 +42,40 @@ class GradientAnalyzer(BaseAnalyzer):
             gradient = algorithm.get_gradient()
             plot_gradient_row(ax, algorithm, param_indexes, ret, gradient=gradient)
         self.reference.policy = backup_policy
+        self.show()
+
+    def visualize_off_policy_gradient_direction_estimates(self, policies, ground_truth, dataset):
+        policy = policies[0]
+        if self._n_algorithms == 1:
+            fig, ax = plt.subplots(1, 1)
+            axs = [ax]
+        else:
+            fig, axs = plt.subplots(1, self._n_algorithms)
+        row = RowVisualizer("gradient_estimates_row")
+        for constructor in self.algorithm_constructors:
+            visualizer = GradientEstimateVisualizer()
+            visualizer.unmute()
+            visualizer.compute(policies, ground_truth, constructor(self.task.get_descriptor(), dataset, policy))
+            row.sub_visualizer.append(visualizer)
+        row.visualize(axs)
+        row.visualize_decorations(axs)
+        self.show()
+
+    def visualize_off_policy_gradient_direction_estimates(self, policies, ground_truth, dataset):
+        policy = policies[0]
+        if self._n_algorithms == 1:
+            fig, ax = plt.subplots(1, 1)
+            axs = [ax]
+        else:
+            fig, axs = plt.subplots(1, self._n_algorithms)
+        row = RowVisualizer("gradient_estimates_row")
+        for constructor in self.algorithm_constructors:
+            visualizer = GradientEstimateVisualizer()
+            visualizer.unmute()
+            visualizer.compute(policies, ground_truth, constructor(self.task.get_descriptor(), dataset, policy))
+            row.sub_visualizer.append(visualizer)
+        row.visualize(axs)
+        row.visualize_decorations(axs)
         self.show()
 
     def gradient_statistics(self,  dataset_generator, policy_generator, n=20):
@@ -99,6 +133,8 @@ class GradientAnalyzer(BaseAnalyzer):
 
 
         self.reference.policy = backup_policy
+
+
 
 
 

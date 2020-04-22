@@ -10,7 +10,7 @@ from herl.actor import NeuralNetworkPolicy, UniformPolicy
 from herl.rl_interface import RLTask
 from herl.classic_envs import Pendulum2D
 from herl.rl_analysis import MCAnalyzer
-from herl.rl_visualizer import sample_vs_bias_variance, ValueFunctionVisualizer, PlotVisualizer
+from herl.rl_visualizer import ValueFunctionVisualizer, PlotVisualizer
 from herl.analysis_center.critic.critic_analyzer import CriticAnalyzer
 from herl.solver import RLCollector
 from herl.rl_analysis import Printable
@@ -39,6 +39,7 @@ def _load_neural_networks():
     policies = [_new_network() for _ in range(10)]
     for i, policy in enumerate(policies):
         policy.load_model(_get_path("pendulum_deterministic_data/agents/rnd_det_pendulum_%d.torch" % i))
+        policy.symbol = "\pi_{%d}" % i
     return policies
 
 
@@ -71,9 +72,6 @@ class Reset(Printable):
             visualizer.compute(task.environment, analyzer, np.array([200, 200]))
             visualizer.save(_get_path("pendulum_deterministic_data/plots/pendulum_deterministic_value_%d.npz" % i))
 
-
-reset = Reset()
-reset.reset()
 
 policies = _load_neural_networks()
 
@@ -133,50 +131,55 @@ class Pendulum2DCriticAnalyzer(CriticAnalyzer):
         for i, policy in enumerate(self.policies):
             self.visualize_value(PlotVisualizer.load(
                 _get_path("pendulum_deterministic_data/plots/pendulum_deterministic_value_%d.npz" % i)),
-                dataset, policy, *discretization, **graphic_args)
+                dataset.train_ds, policy, *discretization, **graphic_args)
 
-    def offpolicy_bias_variance_estimates(self):
+    def offpolicy_bias_variance_estimates(self, confidence=5.):
         self.print("The dataset is generated with rollout starting from random position"
                    "and following a random policy")
         uniform_policy = UniformPolicy(np.array([-2.]), np.array([2.]))
         n_rollout = 20
         random_start_task = RLTask(Pendulum2D(), gamma=0.95, max_episode_length=200)
 
-        def get_dataset():
-            dataset = self.task.get_empty_dataset(n_max_row=n_rollout * self.task.max_episode_length)
-            collector = RLCollector(dataset, random_start_task, uniform_policy)
-            collector.collect_rollouts(int(n_rollout))
-            return dataset.train_ds
+        for policy in self.policies:
+            def get_dataset():
+                dataset = self.task.get_empty_dataset(n_max_row=n_rollout * self.task.max_episode_length)
+                collector = RLCollector(dataset, random_start_task, uniform_policy)
+                collector.collect_rollouts(int(n_rollout))
+                return dataset.train_ds
+            analyzer = MCAnalyzer(self.task, policy)
+            ground_truth = analyzer.get_return()
+            self.bias_variance_return(get_dataset, policy, ground_truth, abs_confidence=confidence)
 
-        self.bias_variance_return(get_dataset, self.policy)
-
-    def onpolicy_bias_variance_estimates(self):
+    def onpolicy_bias_variance_estimates(self, confidence=5):
         self.print("The dataset is generated with rollout starting from the bottom position (as prescribed in the task)"
                    "and following the evaluation policy")
         n_rollout = 1
         random_start_task = RLTask(Pendulum2D(), gamma=0.95, max_episode_length=200)
 
-        def get_dataset():
-            dataset = self.task.get_empty_dataset(n_max_row=n_rollout * self.task.max_episode_length)
-            collector = RLCollector(dataset, random_start_task, self.policy)
-            collector.collect_rollouts(int(n_rollout))
-            return dataset.train_ds
-
-        self.bias_variance_return(get_dataset, self.policy)
+        for policy in self.policies:
+            def get_dataset():
+                dataset = self.task.get_empty_dataset(n_max_row=n_rollout * self.task.max_episode_length)
+                collector = RLCollector(dataset, random_start_task, policy)
+                collector.collect_rollouts(int(n_rollout))
+                return dataset.train_ds
+            analyzer = MCAnalyzer(self.task, policy)
+            ground_truth = analyzer.get_return()
+            self.bias_variance_return(get_dataset, policy, ground_truth, abs_confidence=confidence)
 
     def onpolicy_sample_bias_variance_estimates(self):
         self.print("The dataset is generated with rollout starting from the bottom position (as prescribed in the task)"
                    " and following the evaluation policy")
-        n_rollout = 1
-        ret = self.reference.get_return()
+        for policy in self.policies:
+            analyzer = MCAnalyzer(self.task, policy)
+            ground_truth = analyzer.get_return()
 
-        def get_return_estimate(i, n):
-            random_start_task = RLTask(Pendulum2D(), gamma=0.95, max_episode_length=200)
-            dataset = self.task.get_empty_dataset(n_max_row=int(n))
-            collector = RLCollector(dataset, random_start_task, self.policy)
-            collector.collect_samples(int(n))
-            return self.algorithm_constructors[i](self.task.get_descriptor(), dataset.train_ds, self.policy).get_return()
+            def get_dataset(n):
+                random_start_task = RLTask(Pendulum2D(), gamma=0.95, max_episode_length=200)
+                dataset = self.task.get_empty_dataset(n_max_row=int(n))
+                collector = RLCollector(dataset, random_start_task, policy)
+                collector.collect_samples(int(n))
+                return dataset.train_ds
 
-        ax = plt.subplot()
-        sample_vs_bias_variance(ax, ret, lambda x: lambda: get_return_estimate(0, x), values=[1000, 1250, 1500, 2000, 5000])
-        self.show()
+            self.visualize_parametrized_return_estimates(ground_truth, policy, lambda x: get_dataset(x),
+                                                         [250, 500, 1000, 1500, 2000, 3000, 5000], confidence=5.)
+            self.show()

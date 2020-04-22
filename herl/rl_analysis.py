@@ -1,10 +1,9 @@
 import numpy as np
 import multiprocessing as mp
 from multiprocessing.pool import ThreadPool as Pool
+from typing import Callable, Tuple, List
 
 from herl.rl_interface import RLTask, RLAgent, Critic, PolicyGradient, Actor, Online
-from herl.dataset import Dataset, Domain
-from herl.solver import RLCollector
 from herl.utils import Printable
 
 
@@ -31,7 +30,8 @@ def montecarlo_estimate(task, state=None, action=None, policy=None, abs_confiden
     env = copy_task.environment
 
     if (state is not None or env.is_init_deterministic()) and policy.is_deterministic() and env.is_deterministic():
-        return copy_task.episode(policy, state, action)
+        ret = copy_task.episode(policy, state, action)
+        return ret
     else:
         j_list = []
         current_std = np.inf
@@ -67,7 +67,7 @@ class MCAnalyzer(Critic, PolicyGradient, Online):
     def get_return(self, abs_confidence=0.1):
         return np.asscalar(montecarlo_estimate(self._task, policy=self.policy, abs_confidence=abs_confidence))
 
-    def get_gradient(self, delta=1E-2, abs_confidence=0.1):
+    def get_gradient(self, delta=1E-3, abs_confidence=0.1):
         params = self.policy.get_parameters().copy()
         j_ref = montecarlo_estimate(self._task, policy=self.policy, abs_confidence=abs_confidence)
         grad = np.zeros_like(params)
@@ -81,12 +81,15 @@ class MCAnalyzer(Critic, PolicyGradient, Online):
         return grad
 
 
-def bias_variance_estimate(ground_thruth, estimator_sampler, abs_confidence=0.1, min_samples=10, max_sample=20):
+def bias_variance_estimate(ground_thruth: float, estimator_sampler: Callable,
+                           abs_confidence: float = 1E-1, min_samples: int = 10, max_sample: int = 20)\
+        -> Tuple[float, float, List[float], float]:
     """
 
     :param ground_thruth:
     :param estimator_sampler:
     :param confidence:
+    :rtype:
     :return:
     """
 
@@ -94,7 +97,7 @@ def bias_variance_estimate(ground_thruth, estimator_sampler, abs_confidence=0.1,
     current_std = np.inf
     while (current_std > abs_confidence or len(estimate_list) <= min_samples) and len(estimate_list)<=max_sample:
         estimate_list.append(estimator_sampler())
-        current_std = 1.96 * np.std(estimate_list) / len(estimate_list)
+        current_std = 1.96 * np.std(estimate_list) / np.sqrt(len(estimate_list))
 
     mean_estimate = np.mean(estimate_list, axis=0)
     variance_list = []
@@ -102,8 +105,8 @@ def bias_variance_estimate(ground_thruth, estimator_sampler, abs_confidence=0.1,
     for estimate in estimate_list:
         variance_list.append((mean_estimate-estimate)**2)
 
-    variance_estimate = np.mean(variance_list, axis=0)
-    bias_estimate = mean_estimate - ground_thruth
+    variance_estimate = np.asscalar(np.mean(variance_list, axis=0))
+    bias_estimate = np.asscalar(mean_estimate - ground_thruth)
 
-    return bias_estimate, variance_estimate, estimate_list, "nopg"
+    return bias_estimate, variance_estimate, estimate_list, current_std
 
