@@ -19,7 +19,7 @@ class RLCollector:
         self.rl_task = rl_task
         self.policy = policy
         self.episode_length = episode_length if episode_length is not None else self.rl_task.max_episode_length
-        self.rl_task.environment.set_max_episode_steps(self.episode_length)
+        # self.rl_task.environment.set_max_episode_steps(self.episode_length)
 
     def collect_samples(self, n_samples, gamma_termination=False):
         """
@@ -34,7 +34,7 @@ class RLCollector:
             terminal = False
             state = self.rl_task.reset()
             while i_step < self.episode_length and not terminal:
-                row = self.rl_task.step(self.policy.get_action(state))
+                row = self.rl_task.step(self.policy(state))
                 state = row["next_state"]
                 terminal = bool(row["terminal"][0])
                 if gamma_termination:
@@ -72,7 +72,7 @@ class RLCollector:
                 i_step += 1
 
             while i_step < self.episode_length and not terminal:
-                row = self.rl_task.step(self.policy.get_action(state))
+                row = self.rl_task.step(self.policy(state))
                 state = row["next_state"]
                 terminal = row["terminal"]
                 if gamma_termination:

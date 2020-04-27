@@ -110,3 +110,16 @@ def bias_variance_estimate(ground_thruth: Union[float, np.ndarray], estimator_sa
 
     return bias_estimate, variance_estimate, estimate_list, current_std
 
+
+def gradient_direction(ground_truth: np.ndarray, gradients: np.ndarray) -> np.ndarray:
+    """
+    Receives two matrixes of arrays. each row contains a vector.
+    The method return a 1D-array of angles.
+    :param ground_truth: (n x d), it contains n vectors of dimension d to be compared
+    :param gradients: (n x d), it contains n vectors of dimension d to be compared
+    :return: a vector of n angles between 0 and pi.
+    """
+
+    norm = 1/(np.linalg.norm(ground_truth, axis=1)*np.linalg.norm(gradients, axis=1))
+    cos_x = norm * np.einsum('ij,ji->i', ground_truth, gradients.T)
+    return np.arccos(cos_x)

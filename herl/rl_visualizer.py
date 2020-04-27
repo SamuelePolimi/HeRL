@@ -3,12 +3,12 @@ import matplotlib.pyplot as plt
 import multiprocessing as mp
 from multiprocessing.pool import ThreadPool as Pool
 from sklearn.neighbors import KernelDensity
-from typing import Callable, Any, Iterable, Union
+from typing import Callable, Any, Iterable, Union, List
 
 from herl.rl_interface import Critic, RLEnvironment, PolicyGradient, RLAgent
 from herl.dataset import Dataset
 from herl.dict_serializable import DictSerializable
-from herl.rl_analysis import bias_variance_estimate
+from herl.rl_analysis import bias_variance_estimate, gradient_direction
 from herl.utils import Printable
 
 
@@ -132,6 +132,11 @@ class PlotVisualizer(DictSerializable, Printable):
         self._check()
         ax.set_title(self._data['title'])
 
+    def visualize_decorations(self, ax):
+        self.visualize_x_label(ax)
+        self.visualize_y_label(ax)
+        self.visualize_title(ax)
+
 
 class RowVisualizer(DictSerializable):
 
@@ -243,7 +248,7 @@ class ValueFunctionVisualizer(PlotVisualizer):
 
     def visualize(self, ax: plt.Axes, **graphic_args: Any):
         self._check()
-        self._standard_general_plot(ax, **graphic_args)
+        return self._standard_general_plot(ax, **graphic_args)
 
 
 class QFunctionVisualizer(PlotVisualizer):
@@ -354,8 +359,17 @@ class ReturnLandscape(PlotVisualizer):
                     new_params[indexes[0]] = param[0]
                     new_params[indexes[1]] = param[1]
                     policy.set_parameters(new_params)
-                    Z[i, j] = np.asscalar(critic.get_return())
+                    ret = critic.get_return()
+                    # TODO decide what critic.return should actually return
+                    if hasattr(ret, "item"):
+                        Z[i, j] = np.asscalar(ret)
+                    else:
+                        Z[i, j] = ret
                     policy.set_parameters(ref_param)
+            v = np.max(Z)
+            indx = np.argwhere(Z == v)[0]
+            self._data['p_x'] = x[indx[0]]
+            self._data['p_y'] = y[indx[1]]
             self._data['x'] = X
             self._data['y'] = Y
             self._data['z'] = Z
@@ -370,7 +384,7 @@ class ReturnLandscape(PlotVisualizer):
 
     def visualize(self, ax, **graphic_args):
         self._check()
-        self._standard_general_plot(ax, **graphic_args)
+        return self._standard_general_plot(ax, **graphic_args), self._standard_scatter(ax, **graphic_args)
 
 
 class StateCloudVisualizer(PlotVisualizer):
@@ -401,7 +415,7 @@ class StateCloudVisualizer(PlotVisualizer):
 
     def visualize(self, ax: plt.Axes, **graphic_args):
         self._check()
-        self._standard_scatter(ax, **graphic_args)
+        return self._standard_scatter(ax, **graphic_args)
 
 
 class StateDensityVisualizer(PlotVisualizer):
@@ -416,7 +430,7 @@ class StateDensityVisualizer(PlotVisualizer):
             states = dataset.get_full()["state"]
             kde = KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(states)
             x_lin = np.linspace(environment.state_space.low[0], environment.state_space.high[0], discretization[0])
-            y = kde.score_samples(x_lin.reshape(-1, 1))
+            y = np.exp(kde.score_samples(x_lin.reshape(-1, 1)))
             self._data['x'] = x_lin.ravel()
             self._data['y'] = y.ravel()
             self._data['d'] = 1
@@ -427,15 +441,16 @@ class StateDensityVisualizer(PlotVisualizer):
             y = np.linspace(environment.state_space.low[1], environment.state_space.high[1], discretization[1])
             X, Y = np.meshgrid(x, y)
             base = np.array([X.ravel(), Y.ravel()]).T
-            z = kde.score_samples(base)
+            z = np.exp(kde.score_samples(base))
             self._data['x'] = X
             self._data['y'] = Y
             self._data['z'] = z.reshape(discretization[0], discretization[1])
             self._data['d'] = 2
+        self._values = True
 
     def visualize(self, ax: plt.Axes, **graphic_args):
         self._check()
-        self._standard_general_plot(ax, **graphic_args)
+        return self._standard_general_plot(ax, **graphic_args)
 
 
 class SingleEstimatesVisualizer(PlotVisualizer):
@@ -565,6 +580,47 @@ class BiasVarianceVisualizer(PlotVisualizer):
         ax.legend(loc='best')
 
 
+class ParametricGradientEstimateVisualizer(PlotVisualizer):
+
+    class_name = "parametric_gradient_visualizer"
+
+    def __init__(self):
+        """
+        The idea of this plot is to show the cosine of the angle between the correct gradient direction and the
+        estimated one, versus a parameter of the estimate (e.g., the number of samples, the off-policiness, ...).
+        The resulting plot will therefore consist of a function defined on the parameter's domain and havin codomain
+        between 1 and -1. when the cos(delta) is positive, then the gradient direction is "correct", and when it is
+        negative, it is "incorrect". Notice that when the dimensionality of the gradient is "big", then
+        cos(theta) will tend to have values close to 0.
+        """
+        PlotVisualizer.__init__(self, ParametricGradientEstimateVisualizer.class_name)
+
+    def compute(self, policies: Iterable[RLAgent],
+                ground_truth: np.ndarray,
+                estimator: Callable[[RLAgent, float], np.ndarray],
+                parameters: List[float],
+                x_label=""):
+        y = []
+        n_updates = len(parameters) * ground_truth.shape[0]
+        progress = self.get_progress_bar("gradient computation", n_updates)
+        for x in parameters:
+            estimates = []
+            for policy in policies:
+                estimates.append(estimator(policy, x))
+                progress.notify()
+            mean_direction = np.mean(np.cos(gradient_direction(ground_truth, np.array(estimates))))
+            y.append(mean_direction)
+        self._data['x'] = parameters
+        self._data['y'] = y
+        self._data['y_label'] = r"$\cos\delta$"
+        self._data['x_label'] = x_label
+        self._data['title'] = "Gradient Direction"
+        self._values = True
+
+    def visualize(self, ax: plt.Axes, **graphic_args):
+        self._standard_plot(ax, **graphic_args)
+
+
 class ValueRowVisualizer(RowVisualizer):
 
     class_name = "value_row_visualizer"
@@ -605,17 +661,15 @@ class GradientEstimateVisualizer(PlotVisualizer):
         PlotVisualizer.__init__(self, GradientEstimateVisualizer.class_name)
 
     def compute(self, policies, ground_truth, analyzer, ground_truth_symbol=""):
-        degrees = []
+        gradients = []
         n_policies = len(policies)
         progress = self.get_progress_bar("gradient_estimation", n_policies)
-        for true_gradient, policy in zip(ground_truth, policies):
+        for policy in  policies:
             progress.notify()
             analyzer.policy = policy
             analyzer.update()
-            gradient = analyzer.get_gradient()
-            cos_x = np.inner(gradient, true_gradient)/(np.linalg.norm(gradient)*np.linalg.norm(true_gradient))
-            degrees.append(np.arccos(cos_x))
-        degrees = np.array(degrees)
+            gradients.append(analyzer.get_gradient())
+        degrees = gradient_direction(np.array(ground_truth), np.array(gradients))
         self._data['a_x'] = np.zeros_like(degrees)
         self._data['a_y'] = np.zeros_like(degrees)
         self._data['a_dx'] = np.cos(degrees)

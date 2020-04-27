@@ -77,16 +77,6 @@ class RLEnvironment(RLEnvironmentDescriptor):
     def render(self):
         self.env.render()
 
-    # TODO:  do we need this, or only in RLTask?
-    def set_max_episode_steps(self, max_episode_length):
-        """
-
-        :param max_episode_length:
-        :type max_episode_length: int
-        :return:
-        """
-        self.env._max_episode_steps = max_episode_length
-
     def is_settable(self):
         return self._settable
 
@@ -324,6 +314,21 @@ class RLAgent:
         pass
 
 
+class RLParametricAgent(RLAgent):
+
+    def get_parameters(self) -> np.ndarray:
+        raise NotImplemented()
+
+    def set_parameters(self, values: np.ndarray) -> None:
+        raise NotImplemented()
+
+    def load(self, path: str) -> None:
+        raise NotImplemented()
+
+    def save(self, path: str) -> None:
+        raise NotImplemented()
+
+
 class RLAlgorithm(Printable):
 
     def __init__(self, name=""):
@@ -360,7 +365,7 @@ class Offline(RLAlgorithm):
 
 class Online(RLAlgorithm):
 
-    def __init__(self, name,  task):
+    def __init__(self, name: str,  task: RLTask):
         """ Online algorithms must interact with the environment specified in the tast in order to collect the data.
         :param task: The task to solve.
         :type task: RLTask
@@ -371,7 +376,7 @@ class Online(RLAlgorithm):
 
 class Actor(RLAlgorithm):
 
-    def __init__(self, name, policy):
+    def __init__(self, name: str, policy: RLAgent):
         """
         Actor algorithms must encode explicitly a policy.
         :param policy:
@@ -385,13 +390,13 @@ class Critic(RLAlgorithm):
     Critic algorithms must estimate the value function.
     """
 
-    def get_V(self, state):
+    def get_V(self, state: np.ndarray) -> np.ndarray:
         raise NotImplemented()
 
-    def get_Q(self, state, action):
+    def get_Q(self, state: np.ndarray, action: np.ndarray) -> np.ndarray:
         raise NotImplemented()
 
-    def get_return(self):
+    def get_return(self) -> np.ndarray:
         raise NotImplemented()
 
 
@@ -400,10 +405,10 @@ class ModelBased(RLAlgorithm):
     """
     Model Based Algorithms should approximate a model of the transition and eventually of the reward.
     """
-    def get_R(self, state, action):
+    def get_R(self, state: np.ndarray, action: np.ndarray) -> np.ndarray:
         raise NotImplemented()
 
-    def get_T(self, state, action):
+    def get_T(self, state: np.ndarray, action: np.ndarray) -> np.ndarray:
         raise NotImplemented()
 
 
