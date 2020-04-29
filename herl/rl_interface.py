@@ -1,6 +1,6 @@
 import numpy as np
 from gym.spaces import Box
-from typing import Iterable
+from typing import Iterable, Callable
 
 from herl.dataset import Domain, Variable, MLDataset, Dataset
 from herl.config import np_type
@@ -34,12 +34,15 @@ class RLEnvironmentDescriptor:
     def is_deterministic(self):
         return self._deterministic
 
+    # TODO: this should be removed
+    # @ deprecated
     def is_init_deterministic(self):
         return self._init_deterministic
 
 
 class RLEnvironment(RLEnvironmentDescriptor):
 
+    # TODO: remove "init_deterministic"
     def __init__(self, state_space, action_space, environment_creator, settable=False, deterministic=False,
                  init_deterministic=False):
         """
@@ -65,8 +68,10 @@ class RLEnvironment(RLEnvironmentDescriptor):
         a = action.reshape(self.action_dim)
         return self.env.step(a)
 
+    # TODO: allow only to specify non-None states
     def reset(self, state=None):
         if state is None:
+            # TODO: should raise an error here
             return self.env.reset()
         else:
             if self._settable:
@@ -77,6 +82,7 @@ class RLEnvironment(RLEnvironmentDescriptor):
     def render(self):
         self.env.render()
 
+    # TODO: every environment in this library should be "settable"
     def is_settable(self):
         return self._settable
 
@@ -129,26 +135,66 @@ class RLEnvironment(RLEnvironmentDescriptor):
         return RLEnvironmentDescriptor(self.action_space, self.state_space, self._deterministic, self._init_deterministic)
 
 
+class StateDistribution:
+
+    def sample(self) -> np.ndarray:
+        """
+        Return a state (an array of )
+        :return:
+        """
+        raise NotImplementedError()
+
+    def is_deterministic(self) -> bool:
+        raise NotImplementedError()
+
+
+class DeterministicState(StateDistribution):
+
+    def __init__(self, state: np.ndarray):
+        self._state = state
+
+    def sample(self) -> np.ndarray:
+        return self._state
+
+    def is_deterministic(self) -> bool:
+        return True
+
+
+class StochasticState(StateDistribution):
+
+    def __init__(self, distribution: Callable[[], np.ndarray]):
+        self._distribution = distribution
+
+    def sample(self) -> np.ndarray:
+        return self._distribution()
+
+    def is_deterministic(self) -> bool:
+        return False
+
+
 class RLTaskDescriptor:
 
-    def __init__(self, environment_descriptor, gamma=0.99, max_episode_length=np.infty):
+    def __init__(self, environment_descriptor: RLEnvironmentDescriptor,
+                 initial_state_distribution: StateDistribution,
+                 gamma: float = 0.99,
+                 max_episode_length: np.float = np.infty):
         """
         The description of a task.
         :param environment_descriptor: Description of the environment
-        :type environment_descriptor: RLEnvironmentDescriptor
+        :param initial_state_distribution: Initial state distribution
         :param gamma: Discount Factor
-        :type gamma: float
         :param max_episode_length: Maximum number of steps
-        :type max_episode_length: int
         """
         self.environment_descriptor = environment_descriptor
         self.gamma = gamma
         self.max_episode_length = max_episode_length
+        self.initial_state_distribution = initial_state_distribution
 
 
 class RLTask:
 
-    def __init__(self, environment, gamma=0.99, max_episode_length=np.infty, render=False):
+    def __init__(self, environment: RLEnvironment, initial_state_distribution:StateDistribution, gamma=0.99,
+                 max_episode_length=np.infty, render=False):
         """
         Reinforcement learning task. Defined by the environment and the discount factor.
         :param environment: Environment of the reinforcement learning task.
@@ -158,6 +204,7 @@ class RLTask:
         :param max_episode_length: the horizon of the RL problem
         """
         self.environment = environment
+        self.initial_state_distribution = initial_state_distribution
         self.gamma = gamma
         self.domain = Domain(Variable("state", self.environment.state_dim),
                              Variable("action", self.environment.action_dim),
@@ -197,7 +244,7 @@ class RLTask:
             self.tot_episodes += 1
 
         if state is None:
-            self.current_state = self.environment.reset()
+            self.current_state = self.environment.reset(self.initial_state_distribution.sample())
         else:
             if self.environment.is_settable():
                 self.current_state = self.environment.reset(state)
@@ -284,11 +331,12 @@ class RLTask:
         Thi method created a "fresh" copy of the Task (with resetted statistics).
         :return:
         """
-        return RLTask(environment=self.environment.copy(), gamma=self.gamma, max_episode_length=self.max_episode_length,
+        return RLTask(self.environment.copy(), self.initial_state_distribution, gamma=self.gamma, max_episode_length=self.max_episode_length,
                render=self.render)
 
     def get_descriptor(self):
-        return RLTaskDescriptor(self.environment.get_descriptor(), self.gamma, self.max_episode_length)
+        return RLTaskDescriptor(self.environment.get_descriptor(), self.initial_state_distribution, self.gamma,
+                                self.max_episode_length)
 
 
 class RLAgent:

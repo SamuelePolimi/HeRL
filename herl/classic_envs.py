@@ -76,12 +76,13 @@ class LQR(RLEnvironment):
 
 class Pendulum2D(RLEnvironment):
 
+    # TODO: remove initial state
     def __init__(self, initial_state=None):
         init_det = initial_state is not None
         super().__init__(InfoBox(np.array([-np.pi, -8.]), np.array([np.pi, 8.]),
                                  ["Angle of the pendulum", "Angular Velocity"], [r"\theta", r"\dot{\theta}"]),
                             InfoBox(np.array([-2.]), np.array([2.]), ["Torque applied"], ["F"]),
-                            lambda: gym.make("Pendulum-v0"), settable=True, deterministic=True,
+                            lambda: gym.make("Pendulum-v0").env, settable=True, deterministic=True,
                             init_deterministic=init_det)
 
         self.initial_state = initial_state
@@ -93,12 +94,12 @@ class Pendulum2D(RLEnvironment):
         if state is None:
             if self.initial_state is not None:
                 self.env.reset()
-                self.env.env.state = self.initial_state
+                self.env.state = self.initial_state
                 return self.env.env.state
             return self.convert(self.env.reset())
         else:
             self.env.reset()
-            self.env.env.state = state
+            self.env.state = state
             return state
 
     def step(self, action):

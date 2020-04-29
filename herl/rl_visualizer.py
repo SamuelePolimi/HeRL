@@ -670,6 +670,7 @@ class GradientEstimateVisualizer(PlotVisualizer):
             analyzer.update()
             gradients.append(analyzer.get_gradient())
         degrees = gradient_direction(np.array(ground_truth), np.array(gradients))
+
         self._data['a_x'] = np.zeros_like(degrees)
         self._data['a_y'] = np.zeros_like(degrees)
         self._data['a_dx'] = np.cos(degrees)

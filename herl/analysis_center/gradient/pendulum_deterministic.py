@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import os
 
 from herl.actor import NeuralNetworkPolicy, UniformPolicy
-from herl.rl_interface import RLTask
+from herl.rl_interface import RLTask, DeterministicState, StochasticState
 from herl.classic_envs import Pendulum2D
 from herl.rl_analysis import MCAnalyzer
 from herl.rl_visualizer import GradientRowVisualizer, ReturnRowVisualizer, RowVisualizer
@@ -16,7 +16,7 @@ from herl.dataset import Dataset, Domain, Variable
 from herl.solver import RLCollector
 from herl.utils import Printable
 
-task = RLTask(Pendulum2D(np.array([np.pi, 0.])), gamma=0.95, max_episode_length=200)
+task = RLTask(Pendulum2D(), DeterministicState(np.array([np.pi, 0.])), gamma=0.95, max_episode_length=200)
 
 
 def _get_path(filename):
@@ -111,7 +111,13 @@ class Pendulum2DGradientAnalyzer(GradientAnalyzer):
         pass
 
     def visualize_gradient_estimates_uniform_dataset(self, **graphic_args):
-        dataset = task.environment.get_grid_dataset(states=np.array([100, 100]), actions=np.array([3]), step=True)
+        dataset = task.environment.get_grid_dataset(states=np.array([25, 25]), actions=np.array([2]), step=True)
+        # def get_dataset(n):
+        #     random_start_task = RLTask(Pendulum2D(), gamma=0.95, max_episode_length=200)
+        #     dataset = self.task.get_empty_dataset(n_max_row=int(n))
+        #     collector = RLCollector(dataset, random_start_task, UniformPolicy(np.array([-2]), np.array([2])))
+        #     collector.collect_samples(int(n))
+        #     return dataset.train_ds
         self.visualize_off_policy_gradient_direction_estimates(self.policies, self.gradients, dataset)
 
     def onpolicy_bias_variance_estimates(self, confidence=5):
@@ -120,9 +126,12 @@ class Pendulum2DGradientAnalyzer(GradientAnalyzer):
 
         for ground_truth, policy in zip(self.gradients, self.policies):
             def get_dataset(n):
-                random_start_task = RLTask(Pendulum2D(), gamma=0.95, max_episode_length=200)
+                random_start_task = RLTask(Pendulum2D(),
+                                       StochasticState(lambda: np.random.uniform(np.array([-np.pi, -8.]),
+                                                       np.array([np.pi, 8.]))),
+                                           gamma=0.95, max_episode_length=200)
                 dataset = self.task.get_empty_dataset(n_max_row=int(n))
-                collector = RLCollector(dataset, random_start_task, policy)
+                collector = RLCollector(dataset, random_start_task, UniformPolicy(np.array([-2.]), np.array([2.])))
                 collector.collect_samples(int(n))
                 return dataset.train_ds
             self.visualize_bias_variance_gradient(ground_truth, policy, get_dataset, parameters=[200, 500, 1000, 2000],
@@ -149,10 +158,14 @@ class Pendulum2DGradientAnalyzer(GradientAnalyzer):
 
     def gradient_visualize(self, n_policies=100):
         def get_dataset(n):
-            random_start_task = RLTask(Pendulum2D(), gamma=0.95, max_episode_length=200)
+            random_start_task = RLTask(Pendulum2D(),
+                                       StochasticState(lambda: np.random.uniform(np.array([-np.pi, -8.]),
+                                                       np.array([np.pi, 8.]))),
+                                       gamma=0.95,
+                                       max_episode_length=200)
             dataset = self.task.get_empty_dataset(n_max_row=int(n))
             collector = RLCollector(dataset, random_start_task, UniformPolicy(np.array([-2]), np.array([2])))
             collector.collect_samples(int(n))
             return dataset.train_ds
         self.visualize_gradient_direction_samples(self.policies[:n_policies], self.gradients[:n_policies], get_dataset,
-                                                  [4000, 3000, 2000, 1000, 500, 250])
+                                                  [2000, 2750, 1500, 1250, 1000, 750, 500, 250])

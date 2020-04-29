@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import os
 
 from herl.actor import NeuralNetworkPolicy, UniformPolicy
-from herl.rl_interface import RLTask
+from herl.rl_interface import RLTask, DeterministicState
 from herl.classic_envs import Pendulum2D
 from herl.rl_analysis import MCAnalyzer
 from herl.rl_visualizer import ValueFunctionVisualizer, PlotVisualizer
@@ -15,7 +15,7 @@ from herl.analysis_center.critic.critic_analyzer import CriticAnalyzer
 from herl.solver import RLCollector
 from herl.rl_analysis import Printable
 
-task = RLTask(Pendulum2D(np.array([np.pi, 0.])), gamma=0.95, max_episode_length=200)
+task = RLTask(Pendulum2D(), DeterministicState(np.array([np.pi, 0.])), gamma=0.95, max_episode_length=200)
 
 
 def _get_path(filename):
@@ -122,7 +122,7 @@ class Pendulum2DCriticAnalyzer(CriticAnalyzer):
         self.print("The dataset is generated with rollout starting half o "
                    "position and following a random policy")
         uniform_policy = UniformPolicy(np.array([-2.]), np.array([2.]))
-        n_rollout = 20
+        n_rollout = 1
         random_start_task = RLTask(Pendulum2D(), gamma=0.95, max_episode_length=200)
         dataset = self.task.get_empty_dataset(n_max_row=n_rollout*self.task.max_episode_length)
         collector = RLCollector(dataset, random_start_task, uniform_policy)

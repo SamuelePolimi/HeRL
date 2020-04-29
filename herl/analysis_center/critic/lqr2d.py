@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import os
 
 from herl.actor import UniformPolicy, LinearPolicy
-from herl.rl_interface import RLTask
+from herl.rl_interface import RLTask, DeterministicState
 from herl.classic_envs import LQR
 from herl.rl_analysis import MCAnalyzer
 from herl.rl_visualizer import ValueFunctionVisualizer, PlotVisualizer, ReturnLandscape, StateCloudVisualizer\
@@ -31,7 +31,7 @@ def MyLQR():
           action_box=np.array([2., 2.]))
 
 env = MyLQR()
-task = RLTask(env, gamma=0.5, max_episode_length=20)
+task = RLTask(env, DeterministicState(np.array([-1., -1.])), gamma=0.5, max_episode_length=20)
 # policy = LinearPolicy(2, 2, diagonal=True)
 # policy.set_parameters(np.array([-1.25, -1.]))
 # critic = MCAnalyzer(task, policy)

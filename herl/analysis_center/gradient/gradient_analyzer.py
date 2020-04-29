@@ -39,6 +39,7 @@ class GradientAnalyzer(BaseAnalyzer):
         for constructor in self.algorithm_constructors:
             visualizer = GradientEstimateVisualizer()
             visualizer.unmute()
+            #visualizer.compute(None, None, None)
             visualizer.compute(policies, ground_truth, constructor(self.task.get_descriptor(), dataset, policy))
             row.sub_visualizer.append(visualizer)
         row.visualize(axs)
