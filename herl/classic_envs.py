@@ -109,3 +109,6 @@ class Pendulum2D(RLEnvironment):
 
     def copy(self):
         return Pendulum2D(self.initial_state)
+
+    def close(self):
+        return self.env.close()

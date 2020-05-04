@@ -134,6 +134,9 @@ class RLEnvironment(RLEnvironmentDescriptor):
     def get_descriptor(self):
         return RLEnvironmentDescriptor(self.action_space, self.state_space, self._deterministic, self._init_deterministic)
 
+    def close(self):
+        pass
+
 
 class StateDistribution:
 
@@ -337,6 +340,10 @@ class RLTask:
     def get_descriptor(self):
         return RLTaskDescriptor(self.environment.get_descriptor(), self.initial_state_distribution, self.gamma,
                                 self.max_episode_length)
+
+    def close(self):
+        # TODO: commit?
+        self.environment.close()
 
 
 class RLAgent:

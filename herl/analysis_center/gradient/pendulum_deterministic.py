@@ -168,4 +168,4 @@ class Pendulum2DGradientAnalyzer(GradientAnalyzer):
             collector.collect_samples(int(n))
             return dataset.train_ds
         self.visualize_gradient_direction_samples(self.policies[:n_policies], self.gradients[:n_policies], get_dataset,
-                                                  [2000, 2750, 1500, 1250, 1000, 750, 500, 250])
+                                                  [2400, 2200, 2000, 1800, 1600, 250])
