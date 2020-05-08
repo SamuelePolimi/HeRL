@@ -3,9 +3,9 @@ import matplotlib.pyplot as plt
 import multiprocessing as mp
 from multiprocessing.pool import ThreadPool as Pool
 from sklearn.neighbors import KernelDensity
-from typing import Callable, Any, Iterable, Union, List
+from typing import Callable, Any, Iterable, Union, List, Dict
 
-from herl.rl_interface import Critic, RLEnvironment, PolicyGradient, RLAgent
+from herl.rl_interface import Critic, RLEnvironmentDescriptor, PolicyGradient, RLAgent
 from herl.dataset import Dataset
 from herl.dict_serializable import DictSerializable
 from herl.rl_analysis import bias_variance_estimate, gradient_direction
@@ -17,7 +17,7 @@ class PlotVisualizer(DictSerializable, Printable):
     class_name = "plot_visualizer"
     load_fn = DictSerializable.get_numpy_load()
 
-    def __init__(self, plot_class_id):
+    def __init__(self, plot_class_id: str):
         """
         This class defines a visualizer. The visualizer exposes mainly two methods: compute and visualize.
         The compute method should take care to produce the data visualized in the plot. The data must be saved in self._data.
@@ -27,10 +27,12 @@ class PlotVisualizer(DictSerializable, Printable):
            1. disentangling computation and visualization makes the code clearer.
            2. it is possible to compute only once and visualize multiple times on different ax and with different graphics properties.
            3. most importantly it is possible to save and load data from disk.
+
+        :param plot_class_id: Name of the visualizer.
         """
         DictSerializable.__init__(self, DictSerializable.get_numpy_save())
         Printable.__init__(self, plot_class_id, verbose=False)
-        self._data = {'name': plot_class_id}
+        self._data = {'name': plot_class_id}    # type: Dict[str, Any]
         self._values = False
 
     def compute(self, *args, **kwargs):
@@ -51,13 +53,13 @@ class PlotVisualizer(DictSerializable, Printable):
         """
         raise NotImplemented()
 
-    def _standard_plot(self, ax, **graphic_args):
+    def _standard_plot(self, ax: plt.Axes, **graphic_args):
         return ax.plot(self._data['x'], self._data['y'], **graphic_args)
 
-    def _standard_heat_map(self, ax, **graphic_args):
+    def _standard_heat_map(self, ax: plt.Axes, **graphic_args):
         return ax.pcolormesh(self._data['x'], self._data['y'], self._data['z'], **graphic_args)
 
-    def _standard_general_plot(self, ax, **graphic_args):
+    def _standard_general_plot(self, ax: plt.Axes, **graphic_args):
         if self._data['d'] == 1:
             return self._standard_plot(ax, **graphic_args)
         elif self._data['d']:
@@ -65,10 +67,10 @@ class PlotVisualizer(DictSerializable, Printable):
         else:
             raise Exception("_standard_general_plot can handle only one or tho dimensions.")
 
-    def _standard_scatter(self, ax, **graphic_agrs):
+    def _standard_scatter(self, ax: plt.Axes, **graphic_agrs):
         return ax.scatter(self._data['p_x'], self._data['p_y'], **graphic_agrs)
 
-    def _standard_arrow(self, ax, fixed_dx=None, resize=1, **graphic_args):
+    def _standard_arrow(self, ax: plt.Axes, fixed_dx=None, resize=1, **graphic_args):
         if fixed_dx is not None:
             return ax.arrow(self._data['a_x'], self._data['a_y'], fixed_dx,
                             self._data['a_dy']/self._data['a_dx']*fixed_dx, **graphic_args)
@@ -144,14 +146,33 @@ class RowVisualizer(DictSerializable):
     load_fn = DictSerializable.get_numpy_load()
 
     def __init__(self, name: str, *sub_visualizer: PlotVisualizer):
+        """
+        Plot a row of visualizers.
+
+        :param name: Name of the row of visualizers
+        :param sub_visualizer: visualizer in the row
+        """
         DictSerializable.__init__(self, DictSerializable.get_numpy_save())
         self.name = name
         self.sub_visualizer = list(sub_visualizer)  # TODO: check if instead is list(*sub_visualizer)
 
     def compute_i(self, i: int, *args, **kwargs):
+        """
+        Compute the i_th visualizer in the row
+        :param i: Number of the visualizer
+        :param args:
+        :param kwargs:
+        :return:
+        """
         self.sub_visualizer[i].compute(*args, **kwargs)
 
     def visualize(self, axs: Iterable[plt.Axes], **kwargs: Any):
+        """
+        Visualize the visualizers.
+        :param axs: Axes used by the visualizers.
+        :param kwargs: graphical agrument passed to all the visualizers.
+        :return:
+        """
         ret = []
         for ax, visualizer in zip(axs, self.sub_visualizer):
             ret.append(visualizer.visualize(ax, **kwargs))
@@ -201,7 +222,19 @@ class ArrowVisualizer(PlotVisualizer):
     def __init__(self):
         PlotVisualizer.__init__(self, ArrowVisualizer.class_name)
 
-    def compute(self, xs, ys, dx, dy, x_label="", y_label="", title=""):
+    def compute(self, xs: np.ndarray, ys: np.ndarray, dx: np.ndarray, dy: np.ndarray,
+                x_label: str = "", y_label: str = "", title: str = ""):
+        """
+        Compute an arrow plot.
+        :param xs: X position of the arrow
+        :param ys: Y position of the arrow
+        :param dx: X length of the arrow
+        :param dy: Y length of the arrow
+        :param x_label: label of the x-axis
+        :param y_label: label of the y-axis
+        :param title: title of the plot
+        :return: None
+        """
         self._data['a_x'] = xs
         self._data['a_y'] = ys
         self._data['a_dx'] = dx
@@ -209,9 +242,10 @@ class ArrowVisualizer(PlotVisualizer):
         self._data['x_label'] = x_label
         self._data['y_label'] = y_label
         self._data['title'] = title
+        self._values = True
 
-    def visualize(self, ax, **graphic_args):
-        self._standard_quiver(ax, **graphic_args)
+    def visualize(self, ax: plt.axes, **graphic_args):
+        return self._standard_quiver(ax, **graphic_args)
 
 
 class ValueFunctionVisualizer(PlotVisualizer):
@@ -221,7 +255,14 @@ class ValueFunctionVisualizer(PlotVisualizer):
     def __init__(self):
         PlotVisualizer.__init__(self, ValueFunctionVisualizer.class_name)
 
-    def compute(self, env: RLEnvironment, critic: Critic, discretization: Iterable = None):
+    def compute(self, env: RLEnvironmentDescriptor, critic: Critic, discretization: Iterable = None):
+        """
+        Visualize the value function according to a critic estimator.
+        :param env: The environment is needed to retrieve the state-action pairs, as well as generic information.
+        :param critic: The critic perform the estimation fof the value function.
+        :param discretization: This array defines the granularity of the plot.
+        :return:
+        """
         if env.state_space.shape[0] == 1:
             self._data['d'] = 1
             self._data['x'] = np.linspace(env.state_space.low[0], env.state_space.high[0], discretization[0])
@@ -258,7 +299,14 @@ class QFunctionVisualizer(PlotVisualizer):
     def __init__(self):
         PlotVisualizer.__init__(self, QFunctionVisualizer.class_name)
 
-    def compute(self, env: RLEnvironment, critic: Critic, discretization: Iterable = None):
+    def compute(self, env: RLEnvironmentDescriptor, critic: Critic, discretization: Iterable = None):
+        """
+        Visualize the value function according to a critic estimator.
+        :param env: The environment is needed to retrieve the state-action pairs, as well as generic information.
+        :param critic: The critic perform the estimation fof the value function.
+        :param discretization: This array defines the granularity of the plot.
+        :return:
+        """
         if env.state_space.shape[0] == 1 and env.action_space.shape[0] == 1:
             dataset = env.get_grid_dataset(discretization[0:1], discretization[1:])
             ds = dataset.get_full()
@@ -288,7 +336,14 @@ class PolicyVisualizer(PlotVisualizer):
     def __init__(self):
         PlotVisualizer.__init__(self, PolicyVisualizer.class_name)
 
-    def compute(self, env: RLEnvironment, policy: RLAgent, discretization: Iterable = None):
+    def compute(self, env: RLEnvironmentDescriptor, policy: RLAgent, discretization: Iterable = None):
+        """
+        Visualize the policy. It is currently limited to the visualization of deterministic policies.
+        :param env: The environment is needed to retrieve the state-action pairs, as well as generic information.
+        :param policy: The considered policy.
+        :param discretization: This array defines the granularity of the plot.
+        :return:
+        """
         if env.state_space.shape[0] == 1 and env.action_space.shape[0] == 1 and policy.is_deterministic():
             dataset = env.get_grid_dataset(discretization[0:1])
             ds = dataset.get_full()
@@ -327,7 +382,18 @@ class ReturnLandscape(PlotVisualizer):
     def __init__(self):
         PlotVisualizer.__init__(self, ReturnLandscape.class_name)
 
-    def compute(self, critic, policy, indexes, low, high, discretization, **graphic_args):
+    def compute(self, critic: Critic, policy: RLAgent, indexes: list, low: list, high: list, discretization: list):
+        """
+        This visualizer aim to show the return function w.r.t. one or two policy's parameters.
+        :param critic: The critic used to estimate the return.
+        :param policy: The policy considered.
+        :param indexes: One or two indexes for the policy parameters.
+        :param low: The lowest value for each parameter.
+        :param high: The highest value for each parameter.
+        :param discretization: the discretization of each parameter.
+        :param graphic_args:
+        :return:
+        """
         ref_param = policy.get_parameters()
         if len(indexes) == 1:
             params = np.linspace(low[0], high[0], discretization[0])
@@ -392,14 +458,16 @@ class StateCloudVisualizer(PlotVisualizer):
     class_name = "state_cloud_visualizer"
 
     def __init__(self):
+        """
+        This class aim to visualize the states present in a dataset.
+        """
         PlotVisualizer.__init__(self, StateCloudVisualizer.class_name)
 
-    def compute(self, dataset: Dataset, **graphic_args):
+    def compute(self, dataset: Dataset, environment: RLEnvironmentDescriptor = None):
         """
-        Write on ax a scatter representing the dataset
-        :param ax:
-        :param dataset:
-        :param graphic_args:
+        This class aim to visualize the states present in a dataset.
+        :param dataset: The dataset of interest
+        :param environment: Optional. Gives the possibility to produce automatically the plot's label.
         :return:
         """
 
@@ -407,10 +475,62 @@ class StateCloudVisualizer(PlotVisualizer):
             states = dataset.get_full()["state"]
             self._data['p_x'] = states[:, 0]
             self._data['p_y'] = np.zeros_like(self._data['x'])
+            if environment is not None:
+                self._data["x_label"] = r"$%s$" % environment.state_space.symbol[0]
         elif dataset.domain.get_variable("state").length == 2:
             states = dataset.get_full()["state"]
             self._data['p_x'] = states[:, 0]
             self._data['p_y'] = states[:, 1]
+            if environment is not None:
+                self._data["x_label"] = r"$%s$" % environment.state_space.symbol[0]
+                self._data["y_label"] = r"$%s$" % environment.state_space.symbol[1]
+        self._data["title"] = r"States in the dataset"
+        self._values = True
+
+    def visualize(self, ax: plt.Axes, **graphic_args):
+        self._check()
+        return self._standard_scatter(ax, **graphic_args)
+
+
+class DatasetCloudVisualizer(PlotVisualizer):
+
+    class_name = "state_cloud_visualizer"
+
+    def __init__(self):
+        """
+        The aim of this visualizer is to see how is the distribution of particular dimensions in the state or actions.
+        Maximum two dimensions are allowed.
+        There is the possibility to integrate with density estimation if bandwidts>0.
+        """
+        PlotVisualizer.__init__(self, StateCloudVisualizer.class_name)
+
+    def compute(self, environment: RLEnvironmentDescriptor, dataset: Dataset,
+                state_indexes=List[int], action_indexes=List[int]):
+        """
+        This class aim to visualize the states present in a dataset.
+        :param environment: Gives the possibility to produce automatically the plot's label.
+        :param dataset: The dataset of interest
+        :param state_indexes: the index(es) of the state we would like to visualize
+        :param action_indexes: the index(es) of the actions we would like to visualize
+        :return:
+        """
+        symbols = environment.state_space.symbol + environment.action_space.symbol
+        n_s = len(environment.state_space.symbol)
+        tot_indexes = state_indexes + [n_s + a for a in action_indexes]
+        data = dataset.get_full()
+        tot_ds = np.concatenate([data["states"], data["actions"]], axis=1)
+        if len(tot_indexes) == 1:
+            self._data["p_x"] = tot_ds[:, tot_indexes[0]]
+            self._data["x_label"] = r"$%s$" % symbols[tot_indexes[0]]
+        elif dataset.domain.get_variable("state").length == 2:
+            self._data['p_x'] = tot_ds[:, tot_indexes[0]]
+            self._data['p_y'] = tot_ds[:, tot_indexes[1]]
+            self._data["x_label"] = r"$%s$" % symbols[tot_indexes[0]]
+            self._data["y_label"] = r"$%s$" % symbols[tot_indexes[1]]
+        else:
+            raise Exception("Maximum two dimension are allowed")
+
+        self._data["title"] = r"Visualization of the dataset"
         self._values = True
 
     def visualize(self, ax: plt.Axes, **graphic_args):
@@ -425,7 +545,8 @@ class StateDensityVisualizer(PlotVisualizer):
     def __init__(self):
         PlotVisualizer.__init__(self, StateDensityVisualizer.class_name)
 
-    def compute(self, environment, dataset, bandwidth, discretization):
+    def compute(self, environment: RLEnvironmentDescriptor, dataset: Dataset, bandwidth: Union[float, np.ndarray],
+                discretization: List[int]):
         if dataset.domain.get_variable("state").length == 1:
             states = dataset.get_full()["state"]
             kde = KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(states)
@@ -463,7 +584,14 @@ class SingleEstimatesVisualizer(PlotVisualizer):
         """
         PlotVisualizer.__init__(self, SingleEstimatesVisualizer.class_name)
 
-    def compute(self, estimator, ground_truth, min_samples=10, max_samples=100, confidence=1E-1, estimate_symbol=""):
+    # TODO: create BiasVariance Class with hyperparameters in the constructor. In the compute, only ground truth and
+    #  estimator
+    def compute(self, estimator: Callable[[], Union[float, np.ndarray]],
+                ground_truth: Union[float, np.ndarray],
+                min_samples: int = 10,
+                max_samples: int = 100,
+                confidence=1E-1,
+                estimate_symbol=""):
         bias, variance, estimates, title = \
             bias_variance_estimate(ground_truth, estimator, confidence, min_samples, max_samples)
         self._data["x_label"] = ""
@@ -473,7 +601,7 @@ class SingleEstimatesVisualizer(PlotVisualizer):
         self._data["truth"] = ground_truth
         self._values = True
 
-    def visualize(self, ax, **graphic_args):
+    def visualize(self, ax: plt.Axes, **graphic_args):
         ax.violinplot([self._data["estimates"]], showmeans=True)
         ax.set_xlim(0, 2)
         ax.set_xticks([])
@@ -566,7 +694,7 @@ class BiasVarianceVisualizer(PlotVisualizer):
 
         self._data["x_label"] = hyperparameter_symbol
         self._data["y_label"] = estimate_symbol
-        self._data["title"] = "Pinco Pallino"
+        self._data["title"] = "Pinco Pallino" # TODO: change
         self._data["x"] = np.array(x_values)
         self._data["y_bias"] = np.array(y_bias)
         self._data["y_variance"] = np.array(y_variance)
@@ -574,10 +702,11 @@ class BiasVarianceVisualizer(PlotVisualizer):
         self._values = True
 
     def visualize(self, ax:plt.Axes, **graphic_args):
-        ax.plot(self._data['x'], self._data['y_bias'], label=r"${Bias}^2$")
-        ax.plot(self._data['x'], self._data['y_variance'], label=r"$Variance$")
-        ax.plot(self._data['x'], self._data['y_mse'], label=r"$MSE$")
+        ret = ax.plot(self._data['x'], self._data['y_bias'], label=r"${Bias}^2$"),
+        ax.plot(self._data['x'], self._data['y_variance'], label=r"$Variance$"),
+        ax.plot(self._data['x'], self._data['y_mse'], label=r"$MSE$"),
         ax.legend(loc='best')
+        return ret
 
 
 class ParametricGradientEstimateVisualizer(PlotVisualizer):
@@ -618,7 +747,7 @@ class ParametricGradientEstimateVisualizer(PlotVisualizer):
         self._values = True
 
     def visualize(self, ax: plt.Axes, **graphic_args):
-        self._standard_plot(ax, **graphic_args)
+        return self._standard_plot(ax, **graphic_args)
 
 
 class ValueRowVisualizer(RowVisualizer):
@@ -628,7 +757,7 @@ class ValueRowVisualizer(RowVisualizer):
     def __init__(self):
         RowVisualizer.__init__(self, ValueRowVisualizer.class_name)
 
-    def compute(self, env: RLEnvironment, critics: Iterable[Critic], discretizations: Iterable[np.ndarray]):
+    def compute(self, env: RLEnvironmentDescriptor, critics: Iterable[Critic], discretizations: Iterable[np.ndarray]):
         for critic, discretization in zip(critics, discretizations):
             visualizer = ValueFunctionVisualizer()
             visualizer.compute(env, critic, discretization)
@@ -649,7 +778,7 @@ class ReturnRowVisualizer(RowVisualizer):
             visualizer = ReturnLandscape()
             visualizer.unmute()
             param = params[index]
-            visualizer.compute(critic, policy, [index], np.array([param - d]), np.array([param+d]), [disc])
+            visualizer.compute(critic, policy, [index], [param - d], [param+d], [disc])
             self.sub_visualizer.append(visualizer)
 
 
@@ -660,7 +789,22 @@ class GradientEstimateVisualizer(PlotVisualizer):
     def __init__(self):
         PlotVisualizer.__init__(self, GradientEstimateVisualizer.class_name)
 
-    def compute(self, policies, ground_truth, analyzer, ground_truth_symbol=""):
+    def compute(self, policies: List[RLAgent],
+                ground_truth: np.ndarray,
+                analyzer: PolicyGradient,
+                ground_truth_symbol=""):
+        """
+        In this visualizer we aim to plot the direction of an estimation of the gradient w.r.t. the "true" gradient directions.
+        We consider n policies, and for each policy we give a ground-truth gradient.
+        The policy_gradient algorithm will also output its estimation of the gradient for each different policy,
+        and therefore  we will be able to compute the angle between the two gradients.
+        When the angle is less than \pi, then the direction is approximatively  correct, otherwise, the gradient direction is wrong.
+        :param policies:
+        :param ground_truth:
+        :param analyzer:
+        :param ground_truth_symbol:
+        :return:
+        """
         gradients = []
         n_policies = len(policies)
         progress = self.get_progress_bar("gradient_estimation", n_policies)
@@ -670,7 +814,7 @@ class GradientEstimateVisualizer(PlotVisualizer):
             analyzer.update()
             gradients.append(analyzer.get_gradient())
         degrees = gradient_direction(np.array(ground_truth), np.array(gradients))
-
+        self._data['mean_estimate'] = np.mean(degrees)
         self._data['a_x'] = np.zeros_like(degrees)
         self._data['a_y'] = np.zeros_like(degrees)
         self._data['a_dx'] = np.cos(degrees)
@@ -688,12 +832,17 @@ class GradientEstimateVisualizer(PlotVisualizer):
 
     def visualize(self, ax: plt.Axes, **graphic_args):
         self._standard_quiver(ax, **graphic_args)
-        ax.quiver(0, 0, 1, 0, units='width', scale_units='xy', angles='xy', scale=1, color='green', label="Correct Direction")
-        ax.quiver(0, 0, -1, 0, units='width', scale_units='xy', angles='xy', scale=1, color='red', label="Wrong Direction")
+        ax.quiver(0, 0, 1, 0, units='width', scale_units='xy', angles='xy', scale=1, color='green',
+                  label="Correct Direction")
+        ax.quiver(0, 0, -1, 0, units='width', scale_units='xy', angles='xy', scale=1, color='red',
+                  label="Wrong Direction")
+        ax.quiver(0, 0, np.cos(self._data['mean_estimate']), np.sin(self._data['mean_estimate']),
+                  units='width', scale_units='xy', angles='xy', scale=1, color='blue', label="Mean Estimate")
+
         ax.set_xlim(-1, 1)
         ax.set_ylim(0, 1)
-        ax.plot(self._data['x_density'], self._data['y_density'], label=r"Density of $\cos\delta$")
         ax.legend(loc="best")
+        return ax.plot(self._data['x_density'], self._data['y_density'], label=r"Density of $\cos\delta$")
 
 
 class GradientRowVisualizer(RowVisualizer):

@@ -39,6 +39,32 @@ class RLEnvironmentDescriptor:
     def is_init_deterministic(self):
         return self._init_deterministic
 
+    def get_grid_dataset(self, states: list[int], actions: list[int]=None) -> Dataset:
+        """
+        It returns a dataset discretized based on number of states or states and actions.
+        :param states: The number of discretization of the states per dimension.
+        :param actions: The number of discretization for the actions per dimension.
+        When set to 'None', the action will not be discretized.
+        :return:
+        """
+        # TODO is 'initial' flag necessary?
+        grid = [np.linspace(self.state_space.low[i], self.state_space.high[i],
+                     states[i]) for i in range(self.state_dim)]
+        if actions is not None:
+            grid += [np.linspace(self.action_space.low[i], self.action_space.high[i],
+                     actions[i]) for i in range(self.action_dim)]
+        matrix = np.meshgrid(*grid)
+        ravel_matrix = np.array([m.ravel() for m in matrix]).T
+        if actions is None:
+            ds = Dataset(Domain(Variable("state", self.state_dim)), n_max_row=ravel_matrix.shape[0])
+            ds.notify_batch(state=ravel_matrix)
+            return ds
+        else:
+            ds = Dataset(Domain(Variable("state", self.state_dim), Variable("action", self.action_dim)),
+                         n_max_row=ravel_matrix.shape[0])
+            ds.notify_batch(state=ravel_matrix[:, :self.state_dim], action=ravel_matrix[:, self.state_dim:])
+            return ds
+
 
 class RLEnvironment(RLEnvironmentDescriptor):
 
