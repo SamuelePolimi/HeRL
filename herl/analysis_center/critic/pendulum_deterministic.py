@@ -25,7 +25,7 @@ def _get_path(filename):
 
 
 def _new_network():
-    return NeuralNetworkPolicy([50], [torch.relu], task, lambda x: 2 * torch.tanh(x))
+    return NeuralNetworkPolicy(task.environment.get_descriptor(), [50], [torch.relu], lambda x: 2 * torch.tanh(x))
 
 
 def _generate_neural_networks():

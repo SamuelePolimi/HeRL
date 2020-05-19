@@ -28,8 +28,7 @@ class GradientAnalyzer(BaseAnalyzer):
         self.algorithm_constructors = algorithm_constructors
         self._n_algorithms = len(self.algorithm_constructors)
 
-    def visualize_off_policy_gradient_direction_estimates(self, policies, ground_truth, dataset):
-        policy = policies[0]
+    def visualize_off_policy_gradient_direction_estimates(self, policies, ground_truth, get_dataset):
         if self._n_algorithms == 1:
             fig, ax = plt.subplots(1, 1)
             axs = [ax]
@@ -40,7 +39,9 @@ class GradientAnalyzer(BaseAnalyzer):
             visualizer = GradientEstimateVisualizer()
             visualizer.unmute()
             #visualizer.compute(None, None, None)
-            visualizer.compute(policies, ground_truth, constructor(self.task.get_descriptor(), dataset, policy))
+            visualizer.compute(policies, ground_truth[:len(policies)],
+                               lambda policy:\
+                                   constructor(task=self.tak_descriptor, dataset=get_dataset(policy), policy=policy))
             row.sub_visualizer.append(visualizer)
         row.visualize(axs)
         row.visualize_decorations(axs)

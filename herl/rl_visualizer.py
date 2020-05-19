@@ -757,7 +757,7 @@ class ValueRowVisualizer(RowVisualizer):
     def __init__(self):
         RowVisualizer.__init__(self, ValueRowVisualizer.class_name)
 
-    def compute(self, env: RLEnvironmentDescriptor, critics: Iterable[Critic], discretizations: Iterable[np.ndarray]):
+    def compute(self, env: RLEnvironmentDescriptor, critics: Iterable[Critic], discretizations: Iterable[List]):
         for critic, discretization in zip(critics, discretizations):
             visualizer = ValueFunctionVisualizer()
             visualizer.compute(env, critic, discretization)
@@ -791,7 +791,7 @@ class GradientEstimateVisualizer(PlotVisualizer):
 
     def compute(self, policies: List[RLAgent],
                 ground_truth: np.ndarray,
-                analyzer: PolicyGradient,
+                analyzer_constructor: Callable[[RLAgent], PolicyGradient],
                 ground_truth_symbol=""):
         """
         In this visualizer we aim to plot the direction of an estimation of the gradient w.r.t. the "true" gradient directions.
@@ -801,17 +801,17 @@ class GradientEstimateVisualizer(PlotVisualizer):
         When the angle is less than \pi, then the direction is approximatively  correct, otherwise, the gradient direction is wrong.
         :param policies:
         :param ground_truth:
-        :param analyzer:
+        :param analyzer_constructor:
+        :param get_dataset:
         :param ground_truth_symbol:
         :return:
         """
         gradients = []
         n_policies = len(policies)
         progress = self.get_progress_bar("gradient_estimation", n_policies)
-        for policy in  policies:
+        for policy in policies:
             progress.notify()
-            analyzer.policy = policy
-            analyzer.update()
+            analyzer = analyzer_constructor(policy)
             gradients.append(analyzer.get_gradient())
         degrees = gradient_direction(np.array(ground_truth), np.array(gradients))
         self._data['mean_estimate'] = np.mean(degrees)

@@ -6,7 +6,7 @@ import torch, numpy as np
 import matplotlib.pyplot as plt
 import os
 
-from herl.actor import NeuralNetworkPolicy, UniformPolicy
+from herl.actor import NeuralNetworkPolicy, UniformPolicy, GaussianNoisePerturber
 from herl.rl_interface import RLTask, DeterministicState, StochasticState
 from herl.classic_envs import Pendulum2D
 from herl.rl_analysis import MCAnalyzer
@@ -25,8 +25,8 @@ def _get_path(filename):
     return path + "/" + filename
 
 
-def _new_network():
-    return NeuralNetworkPolicy([50], [torch.relu], task, lambda x: 2 * torch.tanh(x))
+def _new_network() -> NeuralNetworkPolicy:
+    return NeuralNetworkPolicy(task.environment.get_descriptor(), [50], [torch.relu], lambda x: 2 * torch.tanh(x))
 
 
 def _new_parameters(n_parameters=100):
@@ -100,7 +100,7 @@ class Pendulum2DGradientAnalyzer(GradientAnalyzer):
 
         :param algorithm_constructors:
         """
-        GradientAnalyzer.__init__(self, task, *algorithm_constructors)
+        GradientAnalyzer.__init__(self, task, algorithm_constructors)
         self.print("Loading Data.")
         self.policies, self.parameters, self.gradients = _load_data()
         self.print("Data Loaded.")
@@ -110,15 +110,17 @@ class Pendulum2DGradientAnalyzer(GradientAnalyzer):
     def all_analysis(self):
         pass
 
-    def visualize_gradient_estimates_uniform_dataset(self, **graphic_args):
-        dataset = task.environment.get_grid_dataset(states=np.array([25, 25]), actions=np.array([2]), step=True)
-        # def get_dataset(n):
-        #     random_start_task = RLTask(Pendulum2D(), gamma=0.95, max_episode_length=200)
-        #     dataset = self.task.get_empty_dataset(n_max_row=int(n))
-        #     collector = RLCollector(dataset, random_start_task, UniformPolicy(np.array([-2]), np.array([2])))
-        #     collector.collect_samples(int(n))
-        #     return dataset.train_ds
-        self.visualize_off_policy_gradient_direction_estimates(self.policies, self.gradients, dataset)
+    def visualize_gradient_estimates_uniform_dataset(self, n_policies=100, **graphic_args):
+        init_state = StochasticState(lambda: np.random.uniform(np.array([-np.pi, -0.2]), np.array([-np.pi+0.1, 0.2])))
+        def get_dataset(agent):
+            random_start_task = RLTask(Pendulum2D(),
+                                       initial_state_distribution=init_state,
+                                       gamma=0.95, max_episode_length=200)
+            dataset = self.task.get_empty_dataset(n_max_row=int(10000))
+            collector = RLCollector(dataset, random_start_task, GaussianNoisePerturber(agent, np.array([[0.1]])))
+            collector.collect_samples(10000)
+            return dataset.train_ds
+        self.visualize_off_policy_gradient_direction_estimates(self.policies[:n_policies], self.gradients, get_dataset)
 
     def onpolicy_bias_variance_estimates(self, confidence=5):
         self.print("The dataset is generated with rollout starting from the bottom position (as prescribed in the task)"

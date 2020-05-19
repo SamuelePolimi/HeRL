@@ -6,8 +6,9 @@ import torch.nn.functional as F
 import torch.nn.init as init
 import math
 import numpy as np
+from typing import Callable, List, Union
 
-from herl.rl_interface import RLTask, RLAgent, RLParametricAgent
+from herl.rl_interface import RLTask, RLAgent, RLParametricModel, RLEnvironmentDescriptor
 from herl.config import torch_type
 
 
@@ -75,30 +76,29 @@ class DiagonalLinear(Module):
         )
 
 
-class NeuralNetwork(nn.Module, RLParametricAgent):
-    def __init__(self, h_layers, act_functions, rl_task, output_function=None):
+class NeuralNetwork(nn.Module, RLParametricModel):
+    def __init__(self, inputs: List[int],
+                 h_layers: List[int],
+                 act_functions: List[Callable],
+                 output_function: Callable = None):
         """
 
         :param h_layers: Each entry represents the no of neurons in the corresponding hidden layer.
-        :type h_layers: list
         :param act_functions: list of activation functions for each input layer. len = len(layers) - 2
-        :type act_functions: list
         :param output_function: Function to be applied to output layer. None if output is linear.
         :type output_function: builtin_function
-        :param rl_task: Used to infer input_dim and output_dim
-        :type rl_task: RLTask
 
         """
 
-        super(NeuralNetwork, self).__init__()
-        self.input_dim = rl_task.environment.state_dim
-        self.hidden = nn.ModuleList([nn.Linear(self.input_dim, h_layers[0])])
-        self.output_dim = rl_task.environment.action_dim
+        nn.Module.__init__(self)
 
-        for input_size, output_size in zip(h_layers, h_layers[1:]):
+        self.input_dim = sum(inputs)
+
+        self.hidden = nn.ModuleList([nn.Linear(self.input_dim, h_layers[0])])
+
+        for input_size, output_size in zip(h_layers[:-1], h_layers[1:]):
             self.hidden.append(nn.Linear(input_size, output_size))
 
-        self.hidden.append(nn.Linear(h_layers[-1], self.output_dim))
         self.hidden = self.hidden.to(dtype=torch_type)
 
         for layer in self.hidden:
@@ -122,6 +122,20 @@ class NeuralNetwork(nn.Module, RLParametricAgent):
         else:
             x = self.out_function(self.hidden[-1](x))
         return x
+
+    def __call__(self, *args, differentiable=False):
+        # TODO: temporary solution len(args)
+        if differentiable:
+            if len(args) > 1:
+                return nn.Module.__call__(self, torch.cat(args, 1))
+            else:
+                return nn.Module.__call__(self, args[0])
+        else:
+            with torch.no_grad():
+                if len(args) > 1:
+                    return nn.Module.__call__(self, torch.from_numpy(np.concatenate(args, axis=1))).numpy()
+                else:
+                    return nn.Module.__call__(self, torch.from_numpy(args[0])).numpy()
 
     def save(self, path):
         """
@@ -171,28 +185,25 @@ class NeuralNetwork(nn.Module, RLParametricAgent):
         return np.concatenate(grads)
 
 
-class NeuralNetworkPolicy(NeuralNetwork):
+class NeuralNetworkPolicy(NeuralNetwork, RLAgent):
 
-    def __init__(self, h_layers, act_functions, rl_task, output_function=None):
+    def __init__(self, rl_environment_descriptor: RLEnvironmentDescriptor,
+                 h_layers: List[int], act_functions: List[Callable], output_function=None):
         RLAgent.__init__(self, deterministic=True)
-        NeuralNetwork.__init__(self, h_layers, act_functions, rl_task, output_function)
-
-    def __call__(self, state, differentiable=False):
-        if differentiable:
-            return NeuralNetwork.__call__(self, state)
-        else:
-            with torch.no_grad():
-                return NeuralNetwork.__call__(self, torch.from_numpy(state)).numpy()
+        NeuralNetwork.__init__(self,
+                               [rl_environment_descriptor.state_dim],
+                               h_layers + [rl_environment_descriptor.action_dim],
+                               act_functions, output_function)
 
     def get_action(self, state):
         return NeuralNetwork.__call__(self, torch.tensor(state, dtype=torch_type)).detach().numpy()
-
-    def get_gradient(self):
-        grads = []
-        for param in self.parameters():
-            grads.append(param.grad.detach().numpy().ravel())
-
-        return np.concatenate(grads)
+    #
+    # def get_gradient(self):
+    #     grads = []
+    #     for param in self.parameters():
+    #         grads.append(param.grad.detach().numpy().ravel())
+    #
+    #     return np.concatenate(grads)
 
 
 class ConstantPolicy(RLAgent):
@@ -255,4 +266,29 @@ class LinearPolicy(NeuralNetwork):
         else:
             with torch.no_grad():
                 return NeuralNetwork.__call__(self, torch.from_numpy(state)).numpy()
+
+
+class GaussianNoisePerturber(RLAgent):
+
+    def __init__(self, policy: RLAgent, covariance: np.ndarray):
+        RLAgent.__init__(self, False, policy.symbol)
+        self._policy = policy
+        self._cov = covariance
+        self._a_dim = covariance.shape[0]
+
+    def get_action(self, state):
+        return self._policy.get_action + np.random.multivariate_normal(np.zeros_like(state), self._cov)
+
+    def __call__(self, states, differentiable=False):
+        if differentiable:
+            raise Exception("For differentiable policies, not implementd yet.")
+        if len(states.shape)==2:
+            noise = np.random.multivariate_normal(np.zeros(self._a_dim), self._cov, states.shape[0])
+        else:
+            noise = np.random.multivariate_normal(np.zeros(self._a_dim), self._cov)
+        return self._policy(states) + noise
+
+
+
+
 

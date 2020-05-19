@@ -1,6 +1,6 @@
 import numpy as np
 from gym.spaces import Box
-from typing import Iterable, Callable
+from typing import Iterable, Callable, Union, List
 
 from herl.dataset import Domain, Variable, MLDataset, Dataset
 from herl.config import np_type
@@ -39,7 +39,7 @@ class RLEnvironmentDescriptor:
     def is_init_deterministic(self):
         return self._init_deterministic
 
-    def get_grid_dataset(self, states: list[int], actions: list[int]=None) -> Dataset:
+    def get_grid_dataset(self, states: List[int], actions: List[int] = None) -> Dataset:
         """
         It returns a dataset discretized based on number of states or states and actions.
         :param states: The number of discretization of the states per dimension.
@@ -158,7 +158,7 @@ class RLEnvironment(RLEnvironmentDescriptor):
             return ds
 
     def get_descriptor(self):
-        return RLEnvironmentDescriptor(self.action_space, self.state_space, self._deterministic, self._init_deterministic)
+        return RLEnvironmentDescriptor(self.state_space, self.action_space, self._deterministic, self._init_deterministic)
 
     def close(self):
         pass
@@ -384,18 +384,12 @@ class RLAgent:
     def is_deterministic(self):
         return self._deterministic
 
-    def get_parameters(self):
-        pass
-
-    def set_parameters(self, values):
-        pass
-
     @deprecated
     def get_action(self, state):
         pass
 
 
-class RLParametricAgent(RLAgent):
+class RLParametricModel:
 
     def get_parameters(self) -> np.ndarray:
         raise NotImplemented()
@@ -421,16 +415,13 @@ class RLAlgorithm(Printable):
 
 class Offline(RLAlgorithm):
 
-    def __init__(self, name, task_descriptor, dataset=None):
+    def __init__(self, name: str, task_descriptor: RLTaskDescriptor, dataset: Dataset = None):
         """
         This class represents algorithms that works with an off-line dataset (i.e., the dataset is fixed), the algorithm
         should not interact with the environment.
         :param name: Name of the algorithm
-        :type name: str
         :param task_descriptor: Descriptor of the task to solve.
-        :type task_descriptor: RLTasktDescriptor
         :param dataset:
-        :type dataset: Dataset
 
         """
         RLAlgorithm.__init__(self, name)
@@ -457,7 +448,7 @@ class Online(RLAlgorithm):
 
 class Actor(RLAlgorithm):
 
-    def __init__(self, name: str, policy: RLAgent):
+    def __init__(self, name: str, policy: Union[RLAgent, RLParametricModel]):
         """
         Actor algorithms must encode explicitly a policy.
         :param policy:
