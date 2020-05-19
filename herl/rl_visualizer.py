@@ -79,8 +79,6 @@ class PlotVisualizer(DictSerializable, Printable):
                             self._data['a_dy']*resize, **graphic_args)
 
     def _standard_quiver(self, ax: plt.Axes, **graphic_args):
-        print(self._data['a_x'], self._data['a_y'], self._data['a_dx'],
-                            self._data['a_dy'],)
         return ax.quiver(self._data['a_x'], self._data['a_y'], self._data['a_dx'],
                             self._data['a_dy'], units='width', scale_units='xy', angles='xy', scale=1, **graphic_args)
 
@@ -686,7 +684,6 @@ class BiasVarianceVisualizer(PlotVisualizer):
         for x in x_values:
             bias, variance, estimates, title = \
                 bias_variance_estimate(ground_truth, estimator(x), confidence, min_samples, max_samples)
-            print()
             bias = np.mean(bias**2)
             variance = np.mean(variance)
             y_bias.append(bias)

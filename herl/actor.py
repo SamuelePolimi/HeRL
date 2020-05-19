@@ -1,4 +1,5 @@
 import torch.nn as nn
+import torch.distributions
 from torch.nn.modules import Module
 from torch.nn import Parameter
 import torch
@@ -6,9 +7,10 @@ import torch.nn.functional as F
 import torch.nn.init as init
 import math
 import numpy as np
+from scipy.stats import multivariate_normal
 from typing import Callable, List, Union
 
-from herl.rl_interface import RLTask, RLAgent, RLParametricModel, RLEnvironmentDescriptor
+from herl.rl_interface import RLAgent, RLParametricModel, RLEnvironmentDescriptor
 from herl.config import torch_type
 
 
@@ -197,13 +199,6 @@ class NeuralNetworkPolicy(NeuralNetwork, RLAgent):
 
     def get_action(self, state):
         return NeuralNetwork.__call__(self, torch.tensor(state, dtype=torch_type)).detach().numpy()
-    #
-    # def get_gradient(self):
-    #     grads = []
-    #     for param in self.parameters():
-    #         grads.append(param.grad.detach().numpy().ravel())
-    #
-    #     return np.concatenate(grads)
 
 
 class ConstantPolicy(RLAgent):
@@ -287,6 +282,28 @@ class GaussianNoisePerturber(RLAgent):
         else:
             noise = np.random.multivariate_normal(np.zeros(self._a_dim), self._cov)
         return self._policy(states) + noise
+
+    def get_prob(self, state: Union[np.ndarray, torch.Tensor],
+                 action: Union[np.ndarray, torch.Tensor],
+                 differentiable: bool=False) -> Union[np.ndarray, torch.Tensor]:
+        if differentiable:
+            n = torch.distributions.multivariate_normal.MultivariateNormal(loc=self._policy(state, differentiable=True),
+                                                                          covariance_matrix=torch.from_numpy(self._cov))
+            return torch.exp(n.log_prob(action))
+        else:
+            if len(state.shape) == 1:
+                return multivariate_normal.pdf(action, mean=self._policy(state), cov=self._cov)
+            else:
+                return np.array([multivariate_normal.pdf(a, mean=self._policy(s),
+                                               cov=self._cov) for s, a in zip(state, action)])
+
+    def zero_grad(self):
+        return self._policy.zero_grad()
+
+    def get_gradient(self):
+        return self._policy.get_gradient()
+
+
 
 
 

@@ -1,8 +1,9 @@
 import numpy as np
+import torch
 from gym.spaces import Box
 from typing import Iterable, Callable, Union, List
 
-from herl.dataset import Domain, Variable, MLDataset, Dataset
+from herl.dataset import Domain, Variable, RLDataset, Dataset
 from herl.config import np_type
 from herl.clean_code import deprecated
 from herl.utils import Printable
@@ -49,10 +50,10 @@ class RLEnvironmentDescriptor:
         """
         # TODO is 'initial' flag necessary?
         grid = [np.linspace(self.state_space.low[i], self.state_space.high[i],
-                     states[i]) for i in range(self.state_dim)]
+                            states[i]) for i in range(self.state_dim)]
         if actions is not None:
             grid += [np.linspace(self.action_space.low[i], self.action_space.high[i],
-                     actions[i]) for i in range(self.action_dim)]
+                                 actions[i]) for i in range(self.action_dim)]
         matrix = np.meshgrid(*grid)
         ravel_matrix = np.array([m.ravel() for m in matrix]).T
         if actions is None:
@@ -113,10 +114,10 @@ class RLEnvironment(RLEnvironmentDescriptor):
         return self._settable
 
     def copy(self):
-       return RLEnvironment(self.state_space, self.action_space, self._env_creator, self._settable,
+        return RLEnvironment(self.state_space, self.action_space, self._env_creator, self._settable,
                              self._deterministic, self._init_deterministic)
 
-    def get_grid_dataset(self, states: Iterable[int], actions: Iterable[int]=None, step: bool=False) -> Dataset:
+    def get_grid_dataset(self, states: Iterable[int], actions: Iterable[int] = None, step: bool = False) -> Dataset:
         """
         It returns a dataset discretized based on number of states or states and actions.
         When step = True, the method will return a dataset with also reward, next states, and terminal infornmation.
@@ -130,10 +131,10 @@ class RLEnvironment(RLEnvironmentDescriptor):
         """
         # TODO is 'initial' flag necessary?
         grid = [np.linspace(self.state_space.low[i], self.state_space.high[i],
-                     states[i]) for i in range(self.state_dim)]
+                            states[i]) for i in range(self.state_dim)]
         if actions is not None:
             grid += [np.linspace(self.action_space.low[i], self.action_space.high[i],
-                     actions[i]) for i in range(self.action_dim)]
+                                 actions[i]) for i in range(self.action_dim)]
         matrix = np.meshgrid(*grid)
         ravel_matrix = np.array([m.ravel() for m in matrix]).T
         if actions is None:
@@ -147,18 +148,20 @@ class RLEnvironment(RLEnvironmentDescriptor):
                 ds.notify_batch(state=ravel_matrix[:, :self.state_dim], action=ravel_matrix[:, self.state_dim:])
             else:
                 ds = Dataset(Domain(Variable("state", self.state_dim), Variable("action", self.action_dim),
-                               Variable("reward", 1), Variable("next_state", self.state_dim), Variable("terminal", 1),
-                               Variable("initial", 1)),
-                        n_max_row=ravel_matrix.shape[0])
+                                    Variable("reward", 1), Variable("next_state", self.state_dim),
+                                    Variable("terminal", 1),
+                                    Variable("initial", 1)),
+                             n_max_row=ravel_matrix.shape[0])
                 for state, action in zip(ravel_matrix[:, :self.state_dim], ravel_matrix[:, self.state_dim:]):
                     self.reset(state)
                     s, r, t, i = self.step(action)
                     ds.notify(state=state, action=action, reward=r, next_state=s,
-                                    terminal=t, initial=np.array([1.]))
+                              terminal=t, initial=np.array([1.]))
             return ds
 
     def get_descriptor(self):
-        return RLEnvironmentDescriptor(self.state_space, self.action_space, self._deterministic, self._init_deterministic)
+        return RLEnvironmentDescriptor(self.state_space, self.action_space, self._deterministic,
+                                       self._init_deterministic)
 
     def close(self):
         pass
@@ -222,7 +225,7 @@ class RLTaskDescriptor:
 
 class RLTask:
 
-    def __init__(self, environment: RLEnvironment, initial_state_distribution:StateDistribution, gamma=0.99,
+    def __init__(self, environment: RLEnvironment, initial_state_distribution: StateDistribution, gamma=0.99,
                  max_episode_length=np.infty, render=False):
         """
         Reinforcement learning task. Defined by the environment and the discount factor.
@@ -333,20 +336,26 @@ class RLTask:
             t = ret["terminal"]
         return j
 
-    def get_empty_dataset(self, n_max_row=None, validation=0.):
+    def _get_domain(self):
+        descriptor = self.environment.get_descriptor()
+        return Domain(Variable("state", descriptor.state_dim),
+                      Variable("action", descriptor.action_dim),
+                      Variable("reward", 1),
+                      Variable("next_state", descriptor.state_dim),
+                      Variable("terminal", 1),
+                      Variable("initial", 1))
+
+    def get_empty_dataset(self, n_max_row: int = None):
         """
         Create a dataset correspondent to the domain specified.
         :param n_max_row: Maximum number of rows in the dataset
-        :type n_max_row: int
-        :param validation: The proportion of validation data
-        :type validation: float
         :return: Empty dataset of the right format to save RL data from the specified task.
-        :rtype: MLDataset
+        :rtype: RLDataset
         """
         if n_max_row is None:
-            return MLDataset(self.domain, self.max_episode_length, validation)
+            return RLDataset(self._get_domain(), self.max_episode_length)
         else:
-            return MLDataset(self.domain, n_max_row, validation)
+            return RLDataset(self._get_domain(), n_max_row)
 
     def commit(self):
         self.discounted_returns.append(self._partial_discounted_return)
@@ -360,8 +369,9 @@ class RLTask:
         Thi method created a "fresh" copy of the Task (with resetted statistics).
         :return:
         """
-        return RLTask(self.environment.copy(), self.initial_state_distribution, gamma=self.gamma, max_episode_length=self.max_episode_length,
-               render=self.render)
+        return RLTask(self.environment.copy(), self.initial_state_distribution, gamma=self.gamma,
+                      max_episode_length=self.max_episode_length,
+                      render=self.render)
 
     def get_descriptor(self):
         return RLTaskDescriptor(self.environment.get_descriptor(), self.initial_state_distribution, self.gamma,
@@ -374,42 +384,107 @@ class RLTask:
 
 class RLAgent:
 
-    def __init__(self, deterministic=False, symbol=r"\pi"):
+    def __init__(self, deterministic: bool = False, symbol: str = r"\pi"):
+        """
+        Defines an agent interactin in a RLEnvironment
+        :param deterministic: If the agent is deterministic, it will always perform the same action given the same state.
+        :param symbol: the simbol that we use to define the agent. It is useful for plotting.
+        """
         self._deterministic = deterministic
         self.symbol = symbol
 
-    def __call__(self, state, differentiable=False):
-        pass
+    def __call__(self, state: Union[np.ndarray, torch.Tensor],
+                 differentiable: bool = False) -> Union[np.ndarray, torch.Tensor]:
+        """
+        Retreive the action(s) performed by the agent in a state (or array of states). When differentiable allows
+        for the computation of the gradient.
+        :param state: d or nxd vector (d = state_dim, n = number of states)
+        :param differentiable: use torch graph when differentiable
+        :return: torch or numpy representation of the action.
+        """
+        raise NotImplemented()
+
+    def get_prob(self, state: Union[np.ndarray, torch.Tensor],
+                 action: Union[np.ndarray, torch.Tensor], differentiable: bool=False) \
+                    -> Union[np.ndarray, torch.Tensor]:
+        """
+        Retreive the probability of an action given a state. When differentiable allow the construction of a
+        computational graph.
+        :param state: state of the agent
+        :param action: action
+        :return:
+        """
+        raise NotImplemented()
 
     def is_deterministic(self):
+        """
+        Is the agent deterministic?
+        :return:
+        """
         return self._deterministic
 
     @deprecated
-    def get_action(self, state):
+    def get_action(self, state: np.ndarray):
         pass
 
 
 class RLParametricModel:
 
     def get_parameters(self) -> np.ndarray:
+        """
+        Get the current parameter of the agent.
+        :return:
+        """
         raise NotImplemented()
 
     def set_parameters(self, values: np.ndarray) -> None:
+        """
+        Set the parameter of the agent
+        :param values:
+        :return:
+        """
         raise NotImplemented()
 
     def load(self, path: str) -> None:
+        """
+        Load the agent from disk.
+        :param path: path of the file.
+        :return:
+        """
         raise NotImplemented()
 
     def save(self, path: str) -> None:
+        """
+        Save the agent on disk.
+        :param path:
+        :return:
+        """
+        raise NotImplemented()
+
+    def get_gradient(self) -> np.ndarray:
+        """
+        Get the gradient of the agent w.r.t. some loss defined in a computational graph.
+        :return:
+        """
         raise NotImplemented()
 
 
+# TODO: find a way to differentiate from policy update and data_update
 class RLAlgorithm(Printable):
 
-    def __init__(self, name=""):
+    def __init__(self, name: str = ""):
+        """
+        Defines a reinforcement learning algorithm. the name is requested for visualization purposes.
+        Choose a short name/symbol for nice visualization.
+        :param name:
+        """
         Printable.__init__(self, name, False, False)
 
     def update(self):
+        """
+        Generic update call.
+        :return:
+        """
         raise NotImplemented()
 
 
@@ -428,6 +503,9 @@ class Offline(RLAlgorithm):
         self.task_descriptor = task_descriptor
         self.dataset = dataset
 
+    def notify_dataset_update(self):
+        pass
+
     def set_dataset(self, dataset: Dataset):
         self.dataset = dataset
 
@@ -437,7 +515,7 @@ class Offline(RLAlgorithm):
 
 class Online(RLAlgorithm):
 
-    def __init__(self, name: str,  task: RLTask):
+    def __init__(self, name: str, task: RLTask):
         """ Online algorithms must interact with the environment specified in the tast in order to collect the data.
         :param task: The task to solve.
         :type task: RLTask
@@ -456,6 +534,9 @@ class Actor(RLAlgorithm):
         RLAlgorithm.__init__(self, name)
         self.policy = policy
 
+    def notify_policy_update(self):
+        pass
+
 
 class Critic(RLAlgorithm):
     """
@@ -473,10 +554,10 @@ class Critic(RLAlgorithm):
 
 
 class ModelBased(RLAlgorithm):
-
     """
     Model Based Algorithms should approximate a model of the transition and eventually of the reward.
     """
+
     def get_R(self, state: np.ndarray, action: np.ndarray) -> np.ndarray:
         raise NotImplemented()
 
@@ -485,7 +566,6 @@ class ModelBased(RLAlgorithm):
 
 
 class PolicyGradient(Actor):
-
     """
     Policy gradient algorithm must estimate the gradient of the policy, and improve it.
     """

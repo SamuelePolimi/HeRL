@@ -1,4 +1,5 @@
 import numpy as np
+from typing import Dict
 
 from herl.config import np_type
 from herl.dict_serializable import DictSerializable
@@ -96,17 +97,15 @@ class Dataset(DictSerializable):
     """
     This class defines a generic dataset.
     """
-    def __init__(self, domain, n_max_row=int(10E6)):
+    def __init__(self, domain: Domain, n_max_row: int=int(10E6)):
         """
         A dataset is specified on a specific Domain. For example, for the Iris dataset, the domain would be something
         like Domain(Variable("sepal_l", 1), Variable("sepal_w", 1), Variable("petal_l", 1), Variabble("petal_w", 1),
         Variable("class", 1)).
         The dataset has a fixed maximum size to allow efficient allocation and data retrival.
         :param domain: The domain of the data.
-        :type domain: Domain
         :param n_max_row: Number maximum of rows. The data's structure is a circular buffer, therefore if the user add
         more data than the n_max row, the first data will be overwritten.
-        :type n_max_row: int
         """
         self.domain = domain
         self.memory = np.zeros((n_max_row, domain.size), dtype=np_type)
@@ -125,7 +124,7 @@ class Dataset(DictSerializable):
         return dataset
 
     @staticmethod
-    def load(file_name, domain):
+    def load(file_name: str, domain: Domain):
         """
 
         :param file_name:
@@ -138,30 +137,31 @@ class Dataset(DictSerializable):
     def _get_dict(self):
         return dict(memory=self.memory, real_size=self.real_size, pointer=self.pointer)
 
-    def notify(self, **kargs):
+    def notify(self, **kargs: np.ndarray) -> bool:
         """
         Insert a new row in the dataset. Each kwarg represent a variable associated to the Variable.
         E.g., for the iris dataset one should run
         `self.notify(sepal_l=1., sepal_w=1., petal_l=0.2, petal_w=0.3)`
         :param kargs: The value associated to the variable
-        :type kargs: np.ndarray
-        :return:
+        :return: Return True if there was a "overflow" and some data has been rewritten (like a circular buffer)
         """
+        old_pointer = self.pointer
         for k, v in kargs.items():
             variable = self.domain.variable_dict[k]
             self.memory[self.pointer, variable.location:variable.location+variable.length] = v
         self.real_size = min(self.real_size + 1, self.max_size)
         self.pointer = (self.pointer + 1) % self.max_size
+        return self.pointer < old_pointer
 
-    def notify_batch(self, **kargs):
+    def notify_batch(self, **kargs: np.ndarray) -> bool:
         """
         Insert a new row in the dataset. Each kwarg represent a variable associated to the Variable.
         E.g., for the iris dataset one should run
         `self.notify(sepal_l=1., sepal_w=1., petal_l=0.2, petal_w=0.3)`
         :param kargs: The value associated to the variable
-        :type kargs: np.ndarray
-        :return:
+        :return: Return True if there was a "overflow" and some data has been rewritten (like a circular buffer)
         """
+        old_pointer = self.pointer
         batch_size = None
         end_size = None
         init_size = None
@@ -182,8 +182,9 @@ class Dataset(DictSerializable):
                     variable.location:variable.location+variable.length] = v[-init_size:, :]
         self.real_size = min(self.real_size + batch_size, self.max_size)
         self.pointer = (self.pointer + batch_size) % self.max_size
+        return self.pointer < old_pointer or batch_size > self.max_size
 
-    def get_minibatch(self, size=128):
+    def get_minibatch(self, size: int=128):
         """
         Retrive a random (mini)batch of data.
         :param size: The size of the batch (which should be less than the data already inserted in the database)
@@ -198,7 +199,7 @@ class Dataset(DictSerializable):
         result = self.memory[indx, :]
         return {k: result[:, v.location:v.location+v.length] for k, v in self.domain.variable_dict.items()}
 
-    def set(self, memory):
+    def set(self, memory: np.ndarray):
         if memory.shape[1] != self.domain.size:
             raise("Wrong format!")
         self.memory = memory
@@ -229,10 +230,16 @@ class Dataset(DictSerializable):
         """
         return self.real_size == 0
 
-    def get_full(self):
+    def get_sequential(self, indx_in: int, indx_end: int):
+        if indx_in < indx_end:
+            return self.memory[indx_in:indx_end]
+        else:
+            return np.concatenate([self.memory[indx_in:], self.memory[:indx_end]], axis=0)
+
+    def get_full(self) -> Dict[str, np.ndarray]:
         return self._get_full(self.memory)
 
-    def _get_full(self, memory):
+    def _get_full(self, memory: np.ndarray) -> Dict[str, np.ndarray]:
         result = memory[:self.real_size, :]
         return {k: result[:, v.location:v.location + v.length] for k, v in self.domain.variable_dict.items()}
 
@@ -252,6 +259,77 @@ class Dataset(DictSerializable):
             memory = memory[indx]
 
         return self._get_full(memory)
+
+
+class RLDataset(Dataset):
+
+    load_fn = DictSerializable.get_numpy_load()
+
+    def __init__(self, domain: Domain, n_max_row=int(10E6)):
+        Dataset.__init__(self, domain, n_max_row)
+
+        self._trajectory_based = False
+        self._trajectory_open = False
+        self._trajectory_index = []
+
+    def notify_new_trajectory(self):
+        """
+        Before starting a new trajectory, notify that you are starting a new trajectory.
+        Each trajectory
+        :return:
+        """
+        self._trajectory_open = True
+        self._trajectory_based = True
+        self._trajectory_index.append(self.pointer)
+
+    def notify_end_trajectory_collection(self):
+        """
+        Close the current trajectory, without opening a new trajectory.
+        :return:
+        """
+        self._trajectory_index.append(self.pointer)
+        self._trajectory_open = False
+
+    def get_trajectory_list(self):
+        if self._trajectory_based:
+            if len(self._trajectory_index) > 1:
+                return [self._get_full(self.get_sequential(indx_in, indx_end))
+                 for indx_in, indx_end in zip(self._trajectory_index[:-1], self._trajectory_index[1:])], \
+                       self._trajectory_open
+            raise Exception("There must be at least one trajectory closed in order to return trajectories")
+        raise Exception("This is not a trajectory-based dataset")
+
+    def _get_dict(self):
+        return dict(memory=self.memory, real_size=self.real_size, pointer=self.pointer,
+                    trajectory_based=self._trajectory_based, trajectory_open=self._trajectory_open,
+                    trajectory_index=self._trajectory_index)
+
+    @staticmethod
+    def load_from_dict(**kwargs):
+        dataset = RLDataset(kwargs["domainr"], kwargs["memory"].shape[0])
+        dataset.memory = kwargs["memory"]
+        dataset.pointer = kwargs["pointer"]
+        dataset.real_size = kwargs["real_size"]
+        dataset._trajectory_based = kwargs["trajectory_based"]
+        dataset._trajectory_open = kwargs["trajectory_open"]
+        dataset._trajectory_index = kwargs["trajectory_index"]
+        return dataset
+
+    @staticmethod
+    def load(file_name: str, domain: Domain):
+        """
+        Load a dataset.
+        :param file_name: the name of the file we want to load.
+        :param environment_descriptor: The environment on which the dataset is defined.
+        :return:
+        """
+        file = Dataset.load_fn(file_name)
+        return Dataset.load_from_dict(domain=domain, **file)
+
+    @property
+    def train_ds(self):
+        print("train_ds is deprecated. Please remove it from your code. You don't need it anymore.")
+        return self
 
 
 class MLDataset(DictSerializable):
