@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 
 from herl.dataset import RLDataset
 from herl.rl_interface import RLTask, RLAgent
@@ -44,7 +45,9 @@ class RLCollector:
                         terminal = True
                 self.dataset.notify(**row)
                 if terminal:
-                    print("hello")
+                    pass
+                    # TODO: why there is an unused if? should we put a "continue"
+                    # print("hello")
                 i_step += 1
                 i_tot_step += 1
                 if i_tot_step >= n_samples:
@@ -129,4 +132,24 @@ class RLSolver:
         i = 0
         while not self.terminal_condition(i, self.rl_task, self.rl_algorithm):
             pass
+
+
+def get_torch_gradient(f: torch.Tensor, policy, return_torch: bool = False):
+    """
+    Get the gradient of f w.r.t. the policy's parameters.
+    :param f: The parametric function.
+    :param policy: The policy parameters.
+    :param return_torch: if true returns a torch tensor, otherwise a numpy vector.
+    :return: the gradient.
+    """
+    if return_torch:
+        policy.zero_grad()
+        f.backward()
+        return torch.from_numpy(policy.get_gradient())
+    else:
+        policy.zero_grad()
+        f.backward()
+        return policy.get_gradient()
+
+
 
