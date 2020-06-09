@@ -201,6 +201,45 @@ class NeuralNetworkPolicy(NeuralNetwork, RLAgent):
         return NeuralNetwork.__call__(self, torch.tensor(state, dtype=torch_type)).detach().numpy()
 
 
+class FixedGaussianNeuralNetworkPolicy(NeuralNetwork, RLAgent):
+
+    def __init__(self, rl_environment_descriptor: RLEnvironmentDescriptor,
+                 h_layers: List[int], act_functions: List[Callable], covariance: np.ndarray, output_function=None):
+        RLAgent.__init__(self, deterministic=False)
+        NeuralNetwork.__init__(self,
+                               [rl_environment_descriptor.state_dim],
+                               h_layers + [rl_environment_descriptor.action_dim],
+                               act_functions, output_function)
+        self._cov = covariance
+        self._a_dim = covariance.shape[0]
+
+    def get_action(self, state):
+        return NeuralNetwork.__call__(self, torch.tensor(state, dtype=torch_type)).detach().numpy()
+
+    def __call__(self, *args, differentiable=False):
+        if len(args[0].shape) == 2:
+            noise = np.random.multivariate_normal(np.zeros(self._a_dim), self._cov, args[0].shape[0])
+        else:
+            noise = np.random.multivariate_normal(np.zeros(self._a_dim), self._cov)
+        if differentiable:
+            noise = torch.from_numpy(noise)
+        return NeuralNetwork.__call__(self,  args[0], differentiable=differentiable) + noise
+
+    def get_prob(self, state: Union[np.ndarray, torch.Tensor],
+                 action: Union[np.ndarray, torch.Tensor],
+                 differentiable: bool=False) -> Union[np.ndarray, torch.Tensor]:
+        if differentiable:
+            n = torch.distributions.multivariate_normal.MultivariateNormal(loc=NeuralNetwork.__call__(self, state, differentiable=True),
+                                                                          covariance_matrix=torch.from_numpy(self._cov))
+            return torch.exp(n.log_prob(action))
+        else:
+            if len(state.shape) == 1:
+                return multivariate_normal.pdf(action, mean=NeuralNetwork.__call__(self, state), cov=self._cov)
+            else:
+                return np.array([multivariate_normal.pdf(a, mean=NeuralNetwork.__call__(s),
+                                               cov=self._cov) for s, a in zip(state, action)])
+
+
 class ConstantPolicy(RLAgent):
 
     def __init__(self, action=0.):
@@ -240,27 +279,79 @@ class UniformPolicy(RLAgent):
         return False
 
 
-class LinearPolicy(NeuralNetwork):
+class LinearPolicy(NeuralNetwork, RLAgent):
 
     def __init__(self, inputSize, outputSize, diagonal=False, device=None):
         nn.Module.__init__(self)
         RLAgent.__init__(self, deterministic=True)
+        self._diagonal = diagonal
         self.device = device
         if diagonal:
             self.linear = DiagonalLinear(inputSize, outputSize, bias=False).to(dtype=torch_type)
         else:
             self.linear = torch.nn.Linear(inputSize, outputSize, bias=False).to(dtype=torch_type)
 
+    def is_diagonal(self):
+        return self._diagonal
+
     def forward(self, x):
         out = self.linear(x)
         return out
 
-    def __call__(self, state, differentiable=False):
-        if differentiable:
-            return NeuralNetwork.__call__(self, state)
+
+class LinearGaussianPolicy(LinearPolicy):
+
+    def __init__(self, inputSize, outputSize, covariance, diagonal=False, device=None):
+        LinearPolicy.__init__(self, inputSize, outputSize, diagonal, device=device)
+        if diagonal:
+            self.linear = DiagonalLinear(inputSize, outputSize, bias=False).to(dtype=torch_type)
         else:
-            with torch.no_grad():
-                return NeuralNetwork.__call__(self, torch.from_numpy(state)).numpy()
+            self.linear = torch.nn.Linear(inputSize, outputSize, bias=False).to(dtype=torch_type)
+        self._cov = covariance
+        self._a_dim = covariance.shape[0]
+
+    def __call__(self, *args, differentiable=False):
+        if len(args[0].shape) == 2:
+            noise = np.random.multivariate_normal(np.zeros(self._a_dim), self._cov, args[0].shape[0])
+        else:
+            noise = np.random.multivariate_normal(np.zeros(self._a_dim), self._cov)
+        if differentiable:
+            noise = torch.from_numpy(noise)
+        return LinearPolicy.__call__(self,  args[0], differentiable=differentiable) + noise
+
+    def get_prob(self, state: Union[np.ndarray, torch.Tensor],
+                 action: Union[np.ndarray, torch.Tensor],
+                 differentiable: bool=False) -> Union[np.ndarray, torch.Tensor]:
+        if differentiable:
+            n = torch.distributions.multivariate_normal.MultivariateNormal(loc=LinearPolicy.__call__(self, state, differentiable=True),
+                                                                          covariance_matrix=torch.from_numpy(self._cov))
+            return torch.exp(n.log_prob(action))
+        else:
+            if len(state.shape) == 1:
+                return multivariate_normal.pdf(action, mean=LinearPolicy.__call__(self, state), cov=self._cov)
+            else:
+                return np.array([multivariate_normal.pdf(a, mean=LinearPolicy.__call__(self, s),
+                                               cov=self._cov) for s, a in zip(state, action)])
+
+    def get_log_prob(self, state: Union[np.ndarray, torch.Tensor],
+                 action: Union[np.ndarray, torch.Tensor],
+                 differentiable: bool=False) -> Union[np.ndarray, torch.Tensor]:
+        if differentiable:
+            n = torch.distributions.multivariate_normal.MultivariateNormal(loc=LinearPolicy.__call__(self, state, differentiable=True),
+                                                                          covariance_matrix=torch.from_numpy(self._cov))
+            return n.log_prob(action)
+        else:
+            if len(state.shape) == 1:
+                return multivariate_normal.logpdf(action, mean=LinearPolicy.__call__(self, state), cov=self._cov)
+            else:
+                return np.array([multivariate_normal.logpdf(a, mean=LinearPolicy.__call__(s),
+                                               cov=self._cov) for s, a in zip(state, action)])
+
+    def get_grad_log_prob(self, state, action):
+        return - (state * self.get_parameters() - action)/np.diag(self._cov) * state
+
+    def is_deterministic(self):
+        return False
 
 
 class GaussianNoisePerturber(RLAgent):
@@ -295,6 +386,20 @@ class GaussianNoisePerturber(RLAgent):
                 return multivariate_normal.pdf(action, mean=self._policy(state), cov=self._cov)
             else:
                 return np.array([multivariate_normal.pdf(a, mean=self._policy(s),
+                                               cov=self._cov) for s, a in zip(state, action)])
+
+    def get_log_prob(self, state: Union[np.ndarray, torch.Tensor],
+                 action: Union[np.ndarray, torch.Tensor],
+                 differentiable: bool=False) -> Union[np.ndarray, torch.Tensor]:
+        if differentiable:
+            n = torch.distributions.multivariate_normal.MultivariateNormal(loc=self._policy(state, differentiable=True),
+                                                                          covariance_matrix=torch.from_numpy(self._cov))
+            return n.log_prob(action)
+        else:
+            if len(state.shape) == 1:
+                return multivariate_normal.logpdf(action, mean=self._policy(state), cov=self._cov)
+            else:
+                return np.array([multivariate_normal.logpdf(a, mean=self._policy(s),
                                                cov=self._cov) for s, a in zip(state, action)])
 
     def zero_grad(self):
