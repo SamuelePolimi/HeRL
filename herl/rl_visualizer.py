@@ -104,6 +104,12 @@ class PlotVisualizer(DictSerializable, Printable):
             visualizer = ReturnLandscape()
         elif name == PolicyVisualizer.class_name:
             visualizer = PolicyVisualizer()
+        elif name == BiasVarianceVisualizer.class_name:
+            visualizer = BiasVarianceVisualizer()
+        elif name == ParametricGradientEstimateVisualizer.class_name:
+            visualizer = ParametricGradientEstimateVisualizer()
+        elif name == Vector2DVisualizer.class_name:
+            visualizer = Vector2DVisualizer()
         else:
             raise Exception("'%s' unknown." % name)
         visualizer._data = kwargs
@@ -164,7 +170,7 @@ class RowVisualizer(DictSerializable):
         """
         self.sub_visualizer[i].compute(*args, **kwargs)
 
-    def visualize(self, axs: Iterable[plt.Axes], **kwargs: Any):
+    def visualize(self, axs: Iterable[plt.Axes], *kwargs: Dict):
         """
         Visualize the visualizers.
         :param axs: Axes used by the visualizers.
@@ -172,8 +178,10 @@ class RowVisualizer(DictSerializable):
         :return:
         """
         ret = []
-        for ax, visualizer in zip(axs, self.sub_visualizer):
-            ret.append(visualizer.visualize(ax, **kwargs))
+        kwargs = list(kwargs)
+        kwargs += [[]]*(len(axs) - len(kwargs))
+        for ax, visualizer, k in zip(axs, self.sub_visualizer, kwargs):
+            ret.append(visualizer.visualize(ax, *k))
         return ret
 
     def _get_dict(self):
@@ -187,8 +195,10 @@ class RowVisualizer(DictSerializable):
             visualizer = ValueRowVisualizer()
         elif name == ReturnRowVisualizer.class_name:
             visualizer = ReturnRowVisualizer()
+        elif name == GradientRowVisualizer:
+            visualizer = GradientRowVisualizer()
         else:
-            raise Exception("'%s' unknown." % name)
+            visualizer = RowVisualizer(kwargs['name'])
         visualizer.sub_visualizer = [PlotVisualizer.load_from_dict(**v) for v in kwargs['sub_visualizer']]
         return visualizer
 
@@ -325,6 +335,44 @@ class QFunctionVisualizer(PlotVisualizer):
     def visualize(self, ax: plt.Axes, **graphic_args: Any):
         self._check()
         return self._standard_plot(ax, **graphic_args)
+
+
+class Vector2DVisualizer(PlotVisualizer):
+
+    class_name = "vector_2d_visualizer"
+
+    def __init__(self):
+        PlotVisualizer.__init__(self, Vector2DVisualizer.class_name)
+
+    def compute(self, **vectors: np.ndarray):
+
+        self._data["list"] = []
+        for k, v in vectors.items():
+
+            if len(v.shape) != 2:
+                raise Exception("The vector %s must be n x 2")
+            if v.shape[1] != 2:
+                raise Exception("The vector %s must be n x 2")
+
+            self._data["list"].append(k)
+            self._data[k + "_values"] = v
+        self._values = True
+
+    def visualize(self, axs: plt.Axes, *graphic_args):
+        colors = 'bgrkoym'
+        q = np.zeros((1, 2))
+        for i, (k, g) in enumerate(zip(self._data["list"], graphic_args)):
+            v = self._data[k + "_values"]
+            n = v.shape[0]
+            if not 'color' in g.keys():
+                g['color'] = colors[i]
+            print(k , g)
+            axs.quiver(np.zeros(n), np.zeros(n), v[:, 0], v[:, 1], units='width',
+                        scale_units='xy', angles='xy', scale=1, label=k, **g)
+            q = np.concatenate([q, v], axis=0)
+        axs.set_ylim(np.min(q[:, 1]), np.max(q[:, 1]))
+        axs.set_xlim(np.min(q[:, 0]), np.max(q[:, 0]))
+        axs.legend(loc='best')
 
 
 class PolicyVisualizer(PlotVisualizer):
@@ -673,6 +721,7 @@ class BiasVarianceVisualizer(PlotVisualizer):
     def compute(self, estimator: Callable[[float], Callable[[], float]],
                 ground_truth: float,
                 x_values: Iterable[float],
+                inner_samples: int = 1,
                 min_samples: int = 10,
                 max_samples: int = 1000,
                 confidence: float = 1E-1,
@@ -681,27 +730,46 @@ class BiasVarianceVisualizer(PlotVisualizer):
                 title: str = ""):
         y_bias = []
         y_variance = []
+        conf_bias = []
+        conf_variance_m = []
+        conf_variance_p = []
+        mse_conf = []
         for x in x_values:
-            bias, variance, estimates, title = \
-                bias_variance_estimate(ground_truth, estimator(x), confidence, min_samples, max_samples)
-            bias = np.mean(bias**2)
-            variance = np.mean(variance)
-            y_bias.append(bias)
-            y_variance.append(variance)
-
+            bias, variance = \
+                bias_variance_estimate(ground_truth, estimator(x), confidence, n_inner_loop_samples=inner_samples,
+                                       min_samples=min_samples,
+                                       max_samples=max_samples)
+            y_bias.append(np.abs(bias.get_mean()))
+            y_variance.append(np.sum(variance.get_variance()))
+            conf_bias.append(bias.get_mean_confidence_interval_95())
+            conf_m, conf_p = variance.get_variance_confidence_interval_95()
+            conf_variance_m.append(np.sum(conf_m))
+            conf_variance_p.append(np.sum(conf_p))
+            #mse_conf.append(1.96 * np.sqrt(bias.get_variance() + variance.get_variance())/np.sqrt(bias.get_count()))
         self._data["x_label"] = hyperparameter_symbol
         self._data["y_label"] = estimate_symbol
         self._data["title"] = "Pinco Pallino" # TODO: change
         self._data["x"] = np.array(x_values)
         self._data["y_bias"] = np.array(y_bias)
+        self._data["y_conf_bias"] = np.array(conf_bias)
+        print("bias", np.array(y_bias))
         self._data["y_variance"] = np.array(y_variance)
+        self._data["y_conf_variance_m"] = np.array(conf_variance_m)
+        self._data["y_conf_variance_p"] = np.array(conf_variance_p)
         self._data["y_mse"] = np.array(y_variance) + np.array(y_bias)
+        #self._data["y_conf_mse"] = np.array(mse_conf)
         self._values = True
 
     def visualize(self, ax:plt.Axes, **graphic_args):
         ret = ax.plot(self._data['x'], self._data['y_bias'], label=r"${Bias}^2$"),
+        ax.fill_between(self._data['x'], self._data['y_bias'] + self._data['y_conf_bias'],
+                        self._data['y_bias'] - self._data['y_conf_bias'], alpha=0.5),
         ax.plot(self._data['x'], self._data['y_variance'], label=r"$Variance$"),
+        ax.fill_between(self._data['x'], self._data['y_variance'] + self._data['y_conf_variance_p'],
+                        self._data['y_variance'] + self._data['y_conf_variance_m'], alpha=0.5),
         ax.plot(self._data['x'], self._data['y_mse'], label=r"$MSE$"),
+        # ax.fill_between(self._data['x'], self._data['y_mse'] + self._data['y_conf_mse'],
+        #                 self._data['y_mse'] - self._data['y_conf_mse'], alpha=0.5),
         ax.legend(loc='best')
         return ret
 
@@ -725,26 +793,43 @@ class ParametricGradientEstimateVisualizer(PlotVisualizer):
                 ground_truth: np.ndarray,
                 estimator: Callable[[RLAgent, float], np.ndarray],
                 parameters: List[float],
-                x_label=""):
+                x_label="",
+                title=""):
         y = []
+        std = []
         n_updates = len(parameters) * ground_truth.shape[0]
         progress = self.get_progress_bar("gradient computation", n_updates)
+        self._data['n'] = len(policies)
         for x in parameters:
             estimates = []
             for policy in policies:
                 estimates.append(estimator(policy, x))
                 progress.notify()
-            mean_direction = np.mean(np.cos(gradient_direction(ground_truth, np.array(estimates))))
+            directions = gradient_direction(ground_truth, np.array(estimates))
+            mean_direction = np.mean(directions)
+            std.append(np.std(directions))
             y.append(mean_direction)
+        self._data['std'] = std
         self._data['x'] = parameters
         self._data['y'] = y
-        self._data['y_label'] = r"$\cos\delta$"
+        self._data['y_label'] = r"$\delta$"
         self._data['x_label'] = x_label
-        self._data['title'] = "Gradient Direction"
+        self._data['title'] = title
         self._values = True
 
     def visualize(self, ax: plt.Axes, **graphic_args):
-        return self._standard_plot(ax, **graphic_args)
+        xmin = np.min(self._data['x'])
+        xmax = np.max(self._data['x'])
+        hoeffding = [np.sqrt(np.log(2/0.05)*np.pi**2/(2*self._data['n']))]*len(self._data['x'])
+        usual = 1.96*np.array(self._data['std'])/np.sqrt(self._data['n'])
+        bound = np.min([hoeffding, usual], axis=0)
+        y = np.array(self._data['y'])
+        ret = self._standard_plot(ax, label="Gradient Estimate", **graphic_args)
+        ax.fill_between(self._data['x'], y + bound, y - bound, alpha=0.5)
+        ax.hlines(y=0, xmin=xmin, xmax=xmax, label="Correct Direction", colors="g")
+        ax.hlines(y=np.pi/2., xmin=xmin, xmax=xmax, label="Random direction", colors="b")
+        ax.hlines(y=np.pi, xmin=xmin, xmax=xmax, label="Worst Possible Direction", colors="r")
+        return ret
 
 
 class ValueRowVisualizer(RowVisualizer):
