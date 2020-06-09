@@ -416,6 +416,18 @@ class RLAgent:
         """
         raise NotImplemented()
 
+    def get_log_prob(self, state: Union[np.ndarray, torch.Tensor],
+                 action: Union[np.ndarray, torch.Tensor], differentiable: bool=False) \
+                    -> Union[np.ndarray, torch.Tensor]:
+        """
+        Retreive the probability of an action given a state. When differentiable allow the construction of a
+        computational graph.
+        :param state: state of the agent
+        :param action: action
+        :return:
+        """
+        raise NotImplemented()
+
     def is_deterministic(self):
         """
         Is the agent deterministic?

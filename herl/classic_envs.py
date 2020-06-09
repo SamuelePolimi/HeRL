@@ -66,7 +66,7 @@ class LQR(RLEnvironment):
     def step(self, action):
         x = self._x.copy()
         self._x = self._A @ x + self._B @ action
-        r = np.inner(self._Q @ x, x) + np.inner(self._R @ action, action)
+        r = -np.inner(self._Q @ x, x) - np.inner(self._R @ action, action)
         t = False
         return self._x, r, t, None
 
