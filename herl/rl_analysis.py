@@ -2,9 +2,11 @@ import numpy as np
 import multiprocessing as mp
 from multiprocessing.pool import ThreadPool as Pool
 from typing import Callable, Tuple, List, Union
+from scipy.stats import chi2
 
-from herl.rl_interface import RLTask, RLAgent, Critic, PolicyGradient, Actor, Online
+from herl.rl_interface import RLTask, RLAgent, Critic, PolicyGradient, Actor, Online, RLParametricModel
 from herl.utils import Printable
+import time
 
 
 class BaseAnalyzer(Printable):
@@ -13,7 +15,23 @@ class BaseAnalyzer(Printable):
         Printable.__init__(self, "Analyzer", verbose, plot)
 
 
-def montecarlo_estimate(task, state=None, action=None, policy=None, abs_confidence=0.1):
+class MCEstimate:
+
+    def __init__(self, task, min_samples=1, max_samples=100, absolute_confidence=1E-1, gamma_precision=0):
+        self.task = task
+        self.min_samples = min_samples
+        self.max_samples = max_samples
+        self.gamma_precision = gamma_precision
+        self.absolute_donfidence = absolute_confidence
+
+    def estimate(self, state=None, action=None, policy=None):
+        return montecarlo_estimate(self.task, state, action, policy, abs_confidence=self.absolute_donfidence,
+                                   min_samples=self.min_samples,
+                                   max_samples=self.max_samples)
+
+
+def montecarlo_estimate(task, state=None, action=None, policy=None, abs_confidence=0.1,
+                        min_samples=1, max_samples=100):
     """
 
     :param task: The task we want to estimate
@@ -35,9 +53,10 @@ def montecarlo_estimate(task, state=None, action=None, policy=None, abs_confiden
     else:
         j_list = []
         current_std = np.inf
-        while current_std > abs_confidence or len(j_list) <= 1:
+        while (current_std > abs_confidence or len(j_list) <= min_samples) and len(j_list) < max_samples:
             j_list.append(copy_task.episode(policy, state, action))
             current_std = 1.96 * np.std(j_list) / len(j_list)
+        print(len(j_list))
         return np.mean(j_list)
 
 
@@ -46,42 +65,140 @@ class MCAnalyzer(Critic, PolicyGradient, Online):
     This class perform an estimation of the critic and the gradient using Monte-Carlo sampling.
     For this, a settable environment is needed.
     """
-
-    def __init__(self, rl_task, policy):
+    # TODO: use the mc_estimators
+    def __init__(self, rl_task: RLTask, policy: Union[RLAgent, RLParametricModel],
+                 q_mc_estimator=None, v_mc_estimator=None, return_mc_estimator=None, gradient_mc_estimator=None,
+                 delta_gradient=1E-3):
         name = "MC"
-        Actor.__init__(self, name, policy)
+        Actor.__init__(self, name, policy)  # TODO is it correct??
         Online.__init__(self, name, rl_task)
+        not_none = lambda estimator: estimator if estimator is not None else MCEstimate(rl_task)
+        self.q_mc_estimator = not_none(q_mc_estimator)
+        self.v_mc_estimator = not_none(v_mc_estimator)
+        self.return_mc_estimator = not_none(return_mc_estimator)
+        self.gradient_mc_estimator = not_none(gradient_mc_estimator)
+        self.delta_gradient = not_none(delta_gradient)
 
-    def get_Q(self, state, action, abs_confidence=0.1):
-        return montecarlo_estimate(self._task, state, action, self.policy, abs_confidence)
+    def get_Q(self, state, action):
+        return self.q_mc_estimator.estimate(state, action, self.policy)
 
-    def get_V(self, state, abs_confidence=0.1):
+    def get_V(self, state):
         if len(state.shape) == 1:
-            return montecarlo_estimate(self._task, state, policy=self.policy, abs_confidence=abs_confidence)
+            return self.v_mc_estimator.estimate(state, policy=self.policy)
         else:
             pool = Pool(mp.cpu_count())
-            f = lambda x: montecarlo_estimate(self._task, x, policy=self.policy, abs_confidence=abs_confidence)
+            f = lambda x: self.v_mc_estimator.estimate(x, policy=self.policy)
             v = pool.map(f, state)
             return np.array(v)
 
-    def get_return(self, abs_confidence=0.1):
-        return np.asscalar(montecarlo_estimate(self._task, policy=self.policy, abs_confidence=abs_confidence))
+    def get_return(self):
+        return np.asscalar(self.v_mc_estimator.estimate(policy=self.policy))
 
-    def get_gradient(self, delta=1E-3, abs_confidence=0.1):
+    def get_gradient(self):
         params = self.policy.get_parameters().copy()
-        j_ref = montecarlo_estimate(self._task, policy=self.policy, abs_confidence=abs_confidence)
+        j_ref = self.gradient_mc_estimator.estimate(policy=self.policy)
         grad = np.zeros_like(params)
         for i in range(params.shape[0]):
             new_params = params.copy()
-            new_params[i] = params[i] + delta
+            new_params[i] = params[i] + self.delta_gradient
             self.policy.set_parameters(new_params)
-            j_delta = montecarlo_estimate(self._task, policy=self.policy, abs_confidence=abs_confidence)
-            grad[i] = (j_delta - j_ref)/delta
+            j_delta = self.gradient_mc_estimator.estimate(policy=self.policy)
+            grad[i] = (j_delta - j_ref)/self.delta_gradient
             self.policy.set_parameters(params)
         return grad
 
 
+class OnlineEstimate:
+
+    def __init__(self):
+        """
+
+        """
+        self._count = 0
+        self._mean = 0.
+        self._m2 = 0.
+        self._variance = 0.
+
+    def notify(self, newValue):
+        self._count += 1
+        delta = newValue - self._mean
+        self._mean += delta / self._count
+        delta2 = newValue - self._mean
+        self._m2 += delta * delta2
+        if self._count < 2:
+            self._variance = np.nan
+            return np.inf
+        else:
+            self._variance = self._m2 / (self._count - 1)
+            return 1.96 * np.sqrt(self._variance) / np.sqrt(self._count)
+
+    def get_mean(self):
+        return self._mean
+
+    def get_variance(self):
+        return self._variance
+
+    def get_mean_confidence_interval_95(self):
+        return 1.96 * np.sqrt(self._variance) / np.sqrt(self._count)
+
+    def get_variance_confidence_interval_95(self):
+        return (self._count - 1) * self._variance / chi2.ppf(0.025, self._count-1) - self._variance \
+            , (self._count - 1) * self._variance / chi2.ppf(0.975, self._count-1) - self._variance
+
+    def get_count(self):
+        return self._count
+
+    def __str__(self):
+        conf_m, conf_p = self.get_variance_confidence_interval_95()
+        return """Estimated average: %s +- %s (confidence 95%%),
+        Estimated variance: %s (+ %s - %s) (confidence 95%%)
+        Number of samples %d
+        """ % (self.get_mean(), self.get_mean_confidence_interval_95(), self.get_variance(), conf_m, conf_p, self.get_count())
+
+
+
 def bias_variance_estimate(ground_thruth: Union[float, np.ndarray], estimator_sampler: Callable,
+                           abs_confidence: float = 1E-1, n_inner_loop_samples: int = 10, min_samples=2, max_samples: int = 20)\
+        -> Tuple[OnlineEstimate, OnlineEstimate]:
+    """
+
+    :param ground_thruth:
+    :param estimator_sampler:
+    :param confidence:
+    :rtype:
+    :return:
+    """
+    variance_estimate = OnlineEstimate()
+    bias_estimate = OnlineEstimate()
+    bias_list = []
+    while True:
+        estimate_list_A = [estimator_sampler() for _ in range(n_inner_loop_samples)]
+        estimate_list_B = [estimator_sampler() for _ in range(n_inner_loop_samples)]
+
+        for e_1, e_2 in zip(estimate_list_A, estimate_list_B):
+            variance_estimate.notify(e_1)
+            variance_estimate.notify(e_2)
+        new_bias = np.inner(np.mean(estimate_list_A, axis=0) - ground_thruth,
+                               np.mean(estimate_list_B, axis=0) - ground_thruth)
+        print("new bias", new_bias, estimate_list_A, estimate_list_B, ground_thruth)
+        bias_list.append(new_bias)
+        bias_estimate.notify(new_bias)
+
+        if bias_estimate.get_count() < min_samples:
+            continue
+
+        if bias_estimate.get_mean_confidence_interval_95() < abs_confidence:
+            break
+
+        if bias_estimate.get_count() >= max_samples:
+            break
+
+        print("Current confidence", bias_estimate.get_mean_confidence_interval_95())
+        print("Current Estimate", bias_estimate.get_mean())
+    return bias_estimate, variance_estimate
+
+
+def bias_variance_estimate_backup(ground_thruth: Union[float, np.ndarray], estimator_sampler: Callable,
                            abs_confidence: float = 1E-1, min_samples: int = 10, max_sample: int = 20)\
         -> Tuple[np.ndarray, np.ndarray, List[np.ndarray], float]:
     """
@@ -123,3 +240,10 @@ def gradient_direction(ground_truth: np.ndarray, gradients: np.ndarray) -> np.nd
     norm = 1/(np.linalg.norm(ground_truth, axis=1)*np.linalg.norm(gradients, axis=1))
     cos_x = norm * np.einsum('ij,ji->i', ground_truth, gradients.T)
     return np.arccos(cos_x)
+
+
+# sample = lambda: np.random.multivariate_normal(np.zeros(2), 100*np.eye(2))
+# oe = OnlineEstimate()
+# for _ in range(20):
+#     oe.notify(sample())
+# print(oe)
