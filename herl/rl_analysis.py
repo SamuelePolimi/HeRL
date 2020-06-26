@@ -1,13 +1,13 @@
 import numpy as np
-import multiprocessing as mp
-from multiprocessing.pool import ThreadPool as Pool
+
 from typing import Callable, Tuple, List, Union
 from scipy.stats import chi2
 
 from herl.rl_interface import RLTask, RLAgent, Critic, PolicyGradient, Actor, Online, RLParametricModel
 from herl.utils import Printable
+from herl.multiprocess import MultiProcess
 import time
-
+import matplotlib.pyplot as plt
 
 class BaseAnalyzer(Printable):
 
@@ -86,7 +86,7 @@ class MCAnalyzer(Critic, PolicyGradient, Online):
         if len(state.shape) == 1:
             return self.v_mc_estimator.estimate(state, policy=self.policy)
         else:
-            pool = Pool(mp.cpu_count())
+            pool = ProcessPool(mp.cpu_count())
             f = lambda x: self.v_mc_estimator.estimate(x, policy=self.policy)
             v = pool.map(f, state)
             return np.array(v)
@@ -138,8 +138,11 @@ class OnlineEstimate:
     def get_variance(self):
         return self._variance
 
-    def get_mean_confidence_interval_95(self):
-        return 1.96 * np.sqrt(self._variance) / np.sqrt(self._count)
+    def get_mean_confidence_interval_95(self, stats='normal'):
+        if stats == 'normal':
+            return 1.96 * np.sqrt(self._variance) / np.sqrt(self._count)
+        if stats == 'square':
+            return chi2.ppf(0.025, self._count) / self._count
 
     def get_variance_confidence_interval_95(self):
         return (self._count - 1) * self._variance / chi2.ppf(0.025, self._count-1) - self._variance \
@@ -156,10 +159,9 @@ class OnlineEstimate:
         """ % (self.get_mean(), self.get_mean_confidence_interval_95(), self.get_variance(), conf_m, conf_p, self.get_count())
 
 
-
 def bias_variance_estimate(ground_thruth: Union[float, np.ndarray], estimator_sampler: Callable,
                            abs_confidence: float = 1E-1, n_inner_loop_samples: int = 10, min_samples=2, max_samples: int = 20)\
-        -> Tuple[OnlineEstimate, OnlineEstimate]:
+        -> Tuple[OnlineEstimate, OnlineEstimate, OnlineEstimate]:
     """
 
     :param ground_thruth:
@@ -170,32 +172,26 @@ def bias_variance_estimate(ground_thruth: Union[float, np.ndarray], estimator_sa
     """
     variance_estimate = OnlineEstimate()
     bias_estimate = OnlineEstimate()
-    bias_list = []
+    mse_estimate = OnlineEstimate()
+    mp = MultiProcess()
     while True:
-        estimate_list_A = [estimator_sampler() for _ in range(n_inner_loop_samples)]
-        estimate_list_B = [estimator_sampler() for _ in range(n_inner_loop_samples)]
-
-        for e_1, e_2 in zip(estimate_list_A, estimate_list_B):
-            variance_estimate.notify(e_1)
-            variance_estimate.notify(e_2)
-        new_bias = np.inner(np.mean(estimate_list_A, axis=0) - ground_thruth,
-                               np.mean(estimate_list_B, axis=0) - ground_thruth)
-        print("new bias", new_bias, estimate_list_A, estimate_list_B, ground_thruth)
-        bias_list.append(new_bias)
-        bias_estimate.notify(new_bias)
+        #estimate_list = thread.map(lambda x: estimator_sampler(), range(n_inner_loop_samples))
+        estimate_list = mp.compute(estimator_sampler, n_inner_loop_samples)
+        for e in estimate_list:
+            variance_estimate.notify(e)
+            mse_estimate.notify((e - ground_thruth)**2)
+            bias_estimate.notify(e-ground_thruth)
 
         if bias_estimate.get_count() < min_samples:
             continue
 
-        if bias_estimate.get_mean_confidence_interval_95() < abs_confidence:
+        if np.sum(mse_estimate.get_mean_confidence_interval_95()) < abs_confidence:
             break
 
         if bias_estimate.get_count() >= max_samples:
             break
 
-        print("Current confidence", bias_estimate.get_mean_confidence_interval_95())
-        print("Current Estimate", bias_estimate.get_mean())
-    return bias_estimate, variance_estimate
+    return bias_estimate, variance_estimate, mse_estimate
 
 
 def bias_variance_estimate_backup(ground_thruth: Union[float, np.ndarray], estimator_sampler: Callable,
@@ -231,19 +227,38 @@ def bias_variance_estimate_backup(ground_thruth: Union[float, np.ndarray], estim
 def gradient_direction(ground_truth: np.ndarray, gradients: np.ndarray) -> np.ndarray:
     """
     Receives two matrixes of arrays. each row contains a vector.
-    The method return a 1D-array of angles.
+    The method return a 1D-array of angles between 0 and pi.
     :param ground_truth: (n x d), it contains n vectors of dimension d to be compared
     :param gradients: (n x d), it contains n vectors of dimension d to be compared
     :return: a vector of n angles between 0 and pi.
     """
-
-    norm = 1/(np.linalg.norm(ground_truth, axis=1)*np.linalg.norm(gradients, axis=1))
-    cos_x = norm * np.einsum('ij,ji->i', ground_truth, gradients.T)
+    ground_truth_copy = ground_truth
+    if len(ground_truth.shape) < 2:
+        ground_truth_copy = np.repeat([ground_truth], gradients.shape[1])
+    norm = 1/(np.linalg.norm(ground_truth_copy, axis=1)*np.linalg.norm(gradients, axis=1))
+    cos_x = norm * np.einsum('ij,ji->i', ground_truth_copy, gradients.T)
     return np.arccos(cos_x)
 
 
-# sample = lambda: np.random.multivariate_normal(np.zeros(2), 100*np.eye(2))
-# oe = OnlineEstimate()
-# for _ in range(20):
-#     oe.notify(sample())
-# print(oe)
+def gradient_2d_full_direction(ground_truth: np.ndarray, gradients: np.ndarray) -> np.ndarray:
+    """
+    Receives tro matrixe of arrays. each row contains a 2d vector.
+    The method returns a 1D-array of angles between -pi and pi.
+    :param ground_truth:
+    :param gradients:
+    :return:
+    """
+    ground_truth_angle = np.angle(ground_truth[0] + ground_truth[1]* 1j)
+    gradients_angles = np.angle(gradients[:, 0] + gradients[:, 1]* 1j) - ground_truth_angle
+    gradients_angles = np.vectorize(norm_angle)(gradients_angles)
+    residual_mean = np.mean(gradients[:, 0] + gradients[:, 1]* 1j, axis=0)
+    return gradients_angles, norm_angle(np.angle(residual_mean) - ground_truth_angle)
+
+
+def norm_angle(angle):
+    if angle > np.pi:
+        return norm_angle(angle - 2*np.pi)
+    if angle < -np.pi:
+        return norm_angle(angle + 2*np.pi)
+    return angle
+

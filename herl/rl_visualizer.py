@@ -8,8 +8,9 @@ from typing import Callable, Any, Iterable, Union, List, Dict
 from herl.rl_interface import Critic, RLEnvironmentDescriptor, PolicyGradient, RLAgent
 from herl.dataset import Dataset
 from herl.dict_serializable import DictSerializable
-from herl.rl_analysis import bias_variance_estimate, gradient_direction
+from herl.rl_analysis import bias_variance_estimate, gradient_direction, gradient_2d_full_direction
 from herl.utils import Printable
+from herl.multiprocess import MultiProcess
 
 
 class PlotVisualizer(DictSerializable, Printable):
@@ -110,6 +111,8 @@ class PlotVisualizer(DictSerializable, Printable):
             visualizer = ParametricGradientEstimateVisualizer()
         elif name == Vector2DVisualizer.class_name:
             visualizer = Vector2DVisualizer()
+        elif name == Vector2DParametricDirection.class_name:
+            visualizer = Vector2DParametricDirection()
         else:
             raise Exception("'%s' unknown." % name)
         visualizer._data = kwargs
@@ -366,13 +369,67 @@ class Vector2DVisualizer(PlotVisualizer):
             n = v.shape[0]
             if not 'color' in g.keys():
                 g['color'] = colors[i]
-            print(k , g)
             axs.quiver(np.zeros(n), np.zeros(n), v[:, 0], v[:, 1], units='width',
                         scale_units='xy', angles='xy', scale=1, label=k, **g)
             q = np.concatenate([q, v], axis=0)
         axs.set_ylim(np.min(q[:, 1]), np.max(q[:, 1]))
         axs.set_xlim(np.min(q[:, 0]), np.max(q[:, 0]))
         axs.legend(loc='best')
+
+
+class Vector2DParametricDirection(PlotVisualizer):
+
+    class_name = "vector_2d_parametric_direction"
+
+    def __init__(self):
+        PlotVisualizer.__init__(self, Vector2DParametricDirection.class_name)
+
+    def compute(self, policy: RLAgent,
+                ground_truth: np.ndarray,
+                estimator: Callable[[RLAgent, float], np.ndarray],
+                parameters: List[float],
+                x_label="",
+                title="",
+                n_estimates=100):
+        x_s = np.zeros((0))
+        y_s = np.zeros((0))
+        y_mean = []
+        std = []
+        n_updates = len(parameters) * ground_truth.shape[0]
+
+        self._data['n'] = n_estimates
+        bar = self.get_progress_bar("Parametric Gradient", max_iter=len(parameters))
+        mp = MultiProcess()
+        for x in parameters:
+            process = lambda: estimator(policy, x)
+            estimates = mp.compute(process, n_estimates)
+            bar.notify()
+            directions, direction_of_mean = gradient_2d_full_direction(ground_truth, np.array(estimates))
+            x_s = np.concatenate([x_s, x*np.ones(directions.shape[0])], axis=0)
+            y_s = np.concatenate([y_s, directions])
+            y_mean.append(direction_of_mean)
+        self._data['std'] = std
+        self._data['x'] = parameters
+        self._data['x_s'] = x_s
+        self._data['y_s'] = y_s
+        self._data['y_mean'] = y_mean
+        self._data['y_label'] = r"$\delta$"
+        self._data['x_label'] = x_label
+        self._data['title'] = title
+        self._values = True
+
+    def visualize(self, ax:plt.Axes, **graphic_args):
+        x = np.array(self._data['x'])
+        y_s = np.array(self._data['y_s']).reshape(len(x), -1).T
+        ret_1 = ax.violinplot(y_s, x, widths=np.mean((x[1:]-x[:-1])/10.), showmeans=True,)
+        # ret_1 = ax.scatter(np.repeat(x, y_s.shape[0]), np.array(self._data['y_s']), s=1., c='r')
+        ret_2 = ax.plot(x, self._data['y_mean'], label="Mean Gradient Estimate")
+        ret_3 = ax.hlines(0., np.min(x), np.max(self._data['x']), label="Correct Direction")
+        ret_4 = ax.hlines(-np.pi/2, np.min(x), np.max(x), colors='blue', label=r"$\pm \pi/2$")
+        ret_5 = ax.hlines(np.pi/2, np.min(x), np.max(x), colors='blue')
+        ax.legend(loc='best')
+        ax.set_ylim(-np.pi, np.pi)
+        return ret_1, ret_2, ret_3, ret_4, ret_5
 
 
 class PolicyVisualizer(PlotVisualizer):
@@ -733,43 +790,44 @@ class BiasVarianceVisualizer(PlotVisualizer):
         conf_bias = []
         conf_variance_m = []
         conf_variance_p = []
+        mse_list = []
         mse_conf = []
         for x in x_values:
-            bias, variance = \
+            bias, variance, mse = \
                 bias_variance_estimate(ground_truth, estimator(x), confidence, n_inner_loop_samples=inner_samples,
                                        min_samples=min_samples,
                                        max_samples=max_samples)
-            y_bias.append(np.abs(bias.get_mean()))
+            y_bias.append(np.sum(np.square(bias.get_mean())))
             y_variance.append(np.sum(variance.get_variance()))
-            conf_bias.append(bias.get_mean_confidence_interval_95())
+            conf_bias.append(np.sum(bias.get_mean_confidence_interval_95()))
             conf_m, conf_p = variance.get_variance_confidence_interval_95()
             conf_variance_m.append(np.sum(conf_m))
             conf_variance_p.append(np.sum(conf_p))
-            #mse_conf.append(1.96 * np.sqrt(bias.get_variance() + variance.get_variance())/np.sqrt(bias.get_count()))
+            mse_list.append(np.sum(mse.get_mean()))
+            mse_conf.append(np.sum(mse.get_mean_confidence_interval_95()))
         self._data["x_label"] = hyperparameter_symbol
         self._data["y_label"] = estimate_symbol
         self._data["title"] = "Pinco Pallino" # TODO: change
         self._data["x"] = np.array(x_values)
         self._data["y_bias"] = np.array(y_bias)
         self._data["y_conf_bias"] = np.array(conf_bias)
-        print("bias", np.array(y_bias))
         self._data["y_variance"] = np.array(y_variance)
         self._data["y_conf_variance_m"] = np.array(conf_variance_m)
         self._data["y_conf_variance_p"] = np.array(conf_variance_p)
-        self._data["y_mse"] = np.array(y_variance) + np.array(y_bias)
-        #self._data["y_conf_mse"] = np.array(mse_conf)
+        self._data["y_conf_mse"] = np.array(mse_conf)
+        self._data["y_mse"] = np.array(mse_list)
         self._values = True
 
     def visualize(self, ax:plt.Axes, **graphic_args):
-        ret = ax.plot(self._data['x'], self._data['y_bias'], label=r"${Bias}^2$"),
+        ret = ax.plot(self._data['x'], self._data['y_bias'], label=r"Bias\textsuperscript{2}"),
         ax.fill_between(self._data['x'], self._data['y_bias'] + self._data['y_conf_bias'],
                         self._data['y_bias'] - self._data['y_conf_bias'], alpha=0.5),
-        ax.plot(self._data['x'], self._data['y_variance'], label=r"$Variance$"),
+        ax.plot(self._data['x'], self._data['y_variance'], label=r"Variance"),
         ax.fill_between(self._data['x'], self._data['y_variance'] + self._data['y_conf_variance_p'],
                         self._data['y_variance'] + self._data['y_conf_variance_m'], alpha=0.5),
-        ax.plot(self._data['x'], self._data['y_mse'], label=r"$MSE$"),
-        # ax.fill_between(self._data['x'], self._data['y_mse'] + self._data['y_conf_mse'],
-        #                 self._data['y_mse'] - self._data['y_conf_mse'], alpha=0.5),
+        ax.plot(self._data['x'], self._data['y_mse'], label=r"MSE"),
+        ax.fill_between(self._data['x'], self._data['y_mse'] + self._data['y_conf_mse'],
+                        self._data['y_mse'] - self._data['y_conf_mse'], alpha=0.5),
         ax.legend(loc='best')
         return ret
 
@@ -796,6 +854,7 @@ class ParametricGradientEstimateVisualizer(PlotVisualizer):
                 x_label="",
                 title=""):
         y = []
+        y_mean = []
         std = []
         n_updates = len(parameters) * ground_truth.shape[0]
         progress = self.get_progress_bar("gradient computation", n_updates)
@@ -806,12 +865,15 @@ class ParametricGradientEstimateVisualizer(PlotVisualizer):
                 estimates.append(estimator(policy, x))
                 progress.notify()
             directions = gradient_direction(ground_truth, np.array(estimates))
+            direction_of_mean = gradient_direction(ground_truth, np.mean(estimates, axis=0, keepdims=True))[0]
             mean_direction = np.mean(directions)
+            y_mean.append(direction_of_mean)
             std.append(np.std(directions))
             y.append(mean_direction)
         self._data['std'] = std
         self._data['x'] = parameters
         self._data['y'] = y
+        self._data['y_mean'] = y_mean
         self._data['y_label'] = r"$\delta$"
         self._data['x_label'] = x_label
         self._data['title'] = title
@@ -825,10 +887,12 @@ class ParametricGradientEstimateVisualizer(PlotVisualizer):
         bound = np.min([hoeffding, usual], axis=0)
         y = np.array(self._data['y'])
         ret = self._standard_plot(ax, label="Gradient Estimate", **graphic_args)
+        ax.plot(self._data['x'], self._data['y_mean'], label="Direction of mean")
         ax.fill_between(self._data['x'], y + bound, y - bound, alpha=0.5)
         ax.hlines(y=0, xmin=xmin, xmax=xmax, label="Correct Direction", colors="g")
         ax.hlines(y=np.pi/2., xmin=xmin, xmax=xmax, label="Random direction", colors="b")
         ax.hlines(y=np.pi, xmin=xmin, xmax=xmax, label="Worst Possible Direction", colors="r")
+        ax.legend(loc='best')
         return ret
 
 
