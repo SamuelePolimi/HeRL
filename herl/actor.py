@@ -12,6 +12,7 @@ from typing import Callable, List, Union
 
 from herl.rl_interface import RLAgent, RLParametricModel, RLEnvironmentDescriptor
 from herl.config import torch_type
+from herl.classic_envs import MDP
 
 
 class DiagonalLinear(Module):
@@ -119,9 +120,10 @@ class NeuralNetwork(nn.Module, RLParametricModel):
         """
         for f, linear_transform in zip(self.act_functions, self.hidden):
             x = f(linear_transform(x))
-        if self.out_function is None:
-            x = self.hidden[-1](x)
-        else:
+        # if self.out_function is None:
+        #     x = self.hidden[-1](x)
+        # else:
+        if self.out_function is not None:
             x = self.out_function(self.hidden[-1](x))
         return x
 
@@ -408,6 +410,88 @@ class GaussianNoisePerturber(RLAgent):
     def get_gradient(self):
         return self._policy.get_gradient()
 
+class TabularPolicy(RLAgent, nn.Module, RLParametricModel):
+
+    def __init__(self, mdp:MDP):
+
+        nn.Module.__init__(self)
+        self._n_actions = len(mdp.get_actions())
+        self._n_states = len(mdp.get_states())
+
+        self._m = Parameter(torch.tensor(np.random.uniform(size=self._n_states*self._n_actions), requires_grad=True))
+
+        self._M = torch.reshape(self._m, shape=(self._n_states, self._n_actions))
+
+        self.tabular = torch.exp(self._M)/torch.sum(torch.exp(self._M), dim=1).unsqueeze(1)
+
+        # self.register_parameter("table", self._m)
+
+    def forward(self, x):
+        return self.tabular[x.squeeze()]
+
+    def __call__(self, *args, differentiable=False):
+        if differentiable:
+            d = torch.distributions.Categorical(probs=nn.Module.__call__(self, *args))
+            return d.sample().unsqueeze(0)
+        else:
+            d = torch.distributions.Categorical(probs=nn.Module.__call__(self, *args))
+            return d.sample().unsqueeze(0).detach().numpy()
+
+    def get_prob(self, state: Union[np.ndarray, torch.Tensor],
+                 action: Union[np.ndarray, torch.Tensor], differentiable: bool=False) -> Union[np.ndarray, torch.Tensor]:
+
+        prob = nn.Module.__call__(selg, state)
+        if differentiable:
+            return prob[action]
+        else:
+            return prob[action].detach().copy().numpy()
+
+    def save(self, path):
+        """
+        Saves the neural network parameters.
+        :param path:
+        :type dir: str
+        :return:
+        """
+
+        torch.save(self.state_dict(), path)
+
+    def load(self, path):
+        """
+        Loads neural network parameters:
+        :param filename
+        :type filename: str
+        :return:
+        """
+        self.load_state_dict(torch.load(path))
+
+    def get_parameters(self):
+        state_dict = self.state_dict()
+
+        params = []
+        for name, param in state_dict.items():
+            # Transform the parameter as required.
+            params.append(param.numpy().ravel())
+
+        return np.concatenate(params)
+
+    def set_parameters(self, values):
+        state_dict = self.state_dict()
+
+        i = 0
+        for name, param in state_dict.items():
+            shape = param.shape
+            n = torch.prod(torch.tensor(shape)).numpy()
+            # Transform the parameter as required.
+            state_dict[name].copy_(torch.tensor(values[i:i+n], dtype=torch_type).reshape(shape))
+            i+=n
+
+    def get_gradient(self):
+        grads = []
+        for param in self.parameters():
+            grads.append(param.grad.detach().numpy().ravel())
+
+        return np.concatenate(grads)
 
 
 
