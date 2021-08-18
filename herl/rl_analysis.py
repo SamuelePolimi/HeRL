@@ -1,13 +1,19 @@
 import numpy as np
 
 from typing import Callable, Tuple, List, Union
+
+import torch
 from scipy.stats import chi2
+import time
+import matplotlib.pyplot as plt
 
 from herl.rl_interface import RLTask, RLAgent, Critic, PolicyGradient, Actor, Online, RLParametricModel
 from herl.utils import Printable
 from herl.multiprocess import MultiProcess
-import time
-import matplotlib.pyplot as plt
+from herl.classic_envs import MDP
+from herl.actor import TabularPolicy
+
+
 
 class BaseAnalyzer(Printable):
 
@@ -55,8 +61,8 @@ def montecarlo_estimate(task, state=None, action=None, policy=None, abs_confiden
         current_std = np.inf
         while (current_std > abs_confidence or len(j_list) <= min_samples) and len(j_list) < max_samples:
             j_list.append(copy_task.episode(policy, state, action))
-            current_std = 1.96 * np.std(j_list) / len(j_list)
-        print(len(j_list))
+            current_std = 1.96 * np.std(j_list) / np.sqrt(len(j_list))
+        print("MC Estimate. Samples: %d, Confidence: %f" % (len(j_list), current_std))
         return np.mean(j_list)
 
 
@@ -92,7 +98,7 @@ class MCAnalyzer(Critic, PolicyGradient, Online):
             return np.array(v)
 
     def get_return(self):
-        return np.asscalar(self.v_mc_estimator.estimate(policy=self.policy))
+        return np.asscalar(self.return_mc_estimator.estimate(policy=self.policy))
 
     def get_gradient(self):
         params = self.policy.get_parameters().copy()
@@ -261,4 +267,57 @@ def norm_angle(angle):
     if angle < -np.pi:
         return norm_angle(angle + 2*np.pi)
     return angle
+
+class MDPAnalyzer:
+
+    def __init__(self, task:RLTask, policy:TabularPolicy):
+        self._task = task
+        if type(self._task.environment) is not MDP:
+            raise("task.environemnt should be an MDP!")
+        self._mdp = task.environment # type: MDP
+        self._policy = policy
+
+        self._M = self._policy.tabular
+        self._P = self._mdp.get_transition_matrix()
+        self._r = self._mdp.get_reward_matrix()
+        self._mu_0 = self._mdp.get_initial_state_probability()
+
+        self._n_states = len(self._mdp.get_states())
+        self._n_actions = len(self._mdp.get_actions())
+
+        self._gamma = task.gamma
+
+    def get_P_policy(self):
+        P = torch.zeros((self._n_states, self._n_states))
+        for s in self._mdp.get_states():
+            pi = self._M[s]
+
+            T = 0.
+            for a, p_a in enumerate(pi):
+                T +=  torch.tensor(self._P[a, s]) * p_a
+
+            P[s, :] = T
+
+        return P
+
+    def get_r_policy(self):
+        r = torch.Tensor((self._n_states))
+
+        for s in self._mdp.get_states():
+            r[s] = torch.inner(torch.tensor(self._r[:, s]), self._M[s, :])
+
+        return r
+
+    def get_v(self):
+        P = self.get_P_policy()
+        r = self.get_r_policy()
+        return torch.linalg.inv(torch.eye(P.shape[0]) - self._gamma*P) @ r
+
+    def get_return(self):
+        return torch.inner(torch.tensor(self._mu_0, dtype=torch.float64), self.get_v().type(dtype=torch.float64))
+
+    def get_policy_gradient(self):
+        j = self.get_return()
+        j.backward()
+        return self._policy.get_gradient()
 
