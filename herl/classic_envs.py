@@ -2,7 +2,7 @@ import gym
 import numpy as np
 from gym.spaces import Box
 
-from herl.rl_interface import RLEnvironment
+from herl.rl_interface import RLEnvironment, StochasticState
 
 
 def env_from_gym(gym_env):
@@ -112,3 +112,85 @@ class Pendulum2D(RLEnvironment):
 
     def close(self):
         return self.env.close()
+
+
+class MDP_core:
+
+    def __init__(self, n_states, n_actions, ergodic=True):
+        self._n_states = n_states
+        self._n_actions = n_actions
+        self._ergodic = ergodic
+
+        self._P = np.random.uniform(size=(n_actions, n_states, n_states))
+        self._r = np.random.uniform(size=(n_actions, n_states))
+
+        for a in range(n_actions):
+            for s in range(n_states):
+                self._P[a, s] = self._P[a, s]/np.sum(self._P[a, s])
+
+        self._mu_0 = np.random.uniform(size=(n_states))
+        self._mu_0 = self._mu_0/np.sum(self._mu_0)
+        self._current_state = None
+        self._current_distr = None
+
+        self.reset()
+
+    def reset(self, state=None):
+        if state is None:
+            self._current_state = np.random.choice(range(self._n_states), p=self._mu_0, size=1)
+        else:
+            self._current_state = state
+        return self._current_state
+
+    def step(self, a):
+        a_ravel = np.asscalar(a)
+        previous_state = np.asscalar(self._current_state)
+        p = self._P[a_ravel, previous_state]
+        r = self._r[a_ravel, previous_state]
+        self._current_state = np.random.choice(range(self._n_states), p=p, size=1)
+        return self._current_state, r, False, None
+
+class MDP(RLEnvironment):
+
+    def __init__(self, n_states, n_actions, ergodic=True):
+        RLEnvironment.__init__(self, InfoBox(np.array([0]), np.array([n_states-1])),
+                               InfoBox(np.array([0]), np.array([n_actions-1])),
+                               lambda: MDP_core(n_states, n_actions, ergodic=ergodic),
+                               True, False, False)
+
+    def get_initial_state_sampler(self):
+        sampler = lambda: np.random.choice(range(self.env._n_states), p=self.env._mu_0, size=1)
+        return StochasticState(sampler)
+
+    def get_states(self):
+        return range(self.env._n_states)
+
+    def get_actions(self):
+        return range(self.env._n_actions)
+
+    def get_reward_matrix(self):
+        return self.env._r
+
+    def get_initial_state_probability(self):
+        return self.env._mu_0
+
+    def get_transition_matrix(self):
+        return self.env._P
+
+    def reset(self, state=None):
+        return self.env.reset(state)
+
+    def reset_dstribution(self):
+        self._current_distr = self.env._mu_0
+
+    def step(self, a):
+        return self.env.step(a)
+
+    def copy(self):
+        mdp = MDP(self.env._n_states, self.env._n_actions, self.env._ergodic)
+        mdp.env._r = self.env._r
+        mdp.env._mu_0 = self.env._mu_0
+        mdp.env._P = self.env._P
+        mdp.env.reset()
+        return mdp
+
