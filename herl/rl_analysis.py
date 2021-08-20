@@ -12,6 +12,7 @@ from herl.utils import Printable
 from herl.multiprocess import MultiProcess
 from herl.classic_envs import MDP
 from herl.actor import TabularPolicy
+from herl.utils import _one_hot, _decode_one_hot
 
 
 
@@ -270,14 +271,13 @@ def norm_angle(angle):
 
 class MDPAnalyzer:
 
-    def __init__(self, task:RLTask, policy:TabularPolicy):
+    def __init__(self, task:RLTask, policy:RLAgent):
         self._task = task
         if type(self._task.environment) is not MDP:
             raise("task.environemnt should be an MDP!")
         self._mdp = task.environment # type: MDP
         self._policy = policy
 
-        self._M = self._policy.tabular
         self._P = self._mdp.get_transition_matrix()
         self._r = self._mdp.get_reward_matrix()
         self._mu_0 = self._mdp.get_initial_state_probability()
@@ -287,14 +287,21 @@ class MDPAnalyzer:
 
         self._gamma = task.gamma
 
+    def _get_action_prob(self, state, action, differentiable=True):
+        s, a = state, action
+        if self._mdp._one_hot:
+            s, a = _one_hot(state, self._n_states), _one_hot(action, self._n_actions)
+        if differentiable:
+            s, a = torch.tensor(s), torch.tensor(a)
+        return self._policy.get_prob(s, a, differentiable=differentiable)
+
     def get_P_policy(self):
         P = torch.zeros((self._n_states, self._n_states))
         for s in self._mdp.get_states():
-            pi = self._M[s]
 
             T = 0.
-            for a, p_a in enumerate(pi):
-                T +=  torch.tensor(self._P[a, s]) * p_a
+            for a in self._mdp.get_actions():
+                T +=  torch.tensor(self._P[a, s]) * self._get_action_prob(s, a, differentiable=True)
 
             P[s, :] = T
 
@@ -304,7 +311,9 @@ class MDPAnalyzer:
         r = torch.Tensor((self._n_states))
 
         for s in self._mdp.get_states():
-            r[s] = torch.inner(torch.tensor(self._r[:, s]), self._M[s, :])
+            r[s] = 0.
+            for a in self._mdp.get_actions():
+                r[s] += torch.tensor(self._r[a, s]) * self._get_action_prob(s, a, differentiable=True)
 
         return r
 
@@ -313,11 +322,29 @@ class MDPAnalyzer:
         r = self.get_r_policy()
         return torch.linalg.inv(torch.eye(P.shape[0]) - self._gamma*P) @ r
 
+    def get_mu(self):
+        P = self.get_P_policy()
+        mu_0 = self._mu_0
+        return torch.linalg.inv(torch.eye(P.shape[0], dtype=torch.float64) - self._gamma*P.T) @ torch.tensor(mu_0)
+
     def get_return(self):
         return torch.inner(torch.tensor(self._mu_0, dtype=torch.float64), self.get_v().type(dtype=torch.float64))
 
     def get_policy_gradient(self):
         j = self.get_return()
+        j.backward()
+        return self._policy.get_gradient()
+
+    def get_alternative_policy_gradient(self):
+        P = self.get_P_policy()
+        r = self.get_r_policy()
+
+        A = torch.eye(P.shape[0]) - self._gamma*P
+        v = torch.linalg.solve(A, r)
+
+        mu = torch.linalg.solve(A.T, torch.tensor(self._mu_0, dtype=torch.float32))
+
+        j = - torch.inner(mu.detach(), A @ v.detach())
         j.backward()
         return self._policy.get_gradient()
 

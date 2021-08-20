@@ -1,5 +1,5 @@
 import matplotlib.pyplot as plt
-
+import numpy as np
 
 class Printable:
 
@@ -65,3 +65,11 @@ class ProgressBar:
         # Print New Line on Complete
         if self._iteration >= self.max_iteration:
             self.printable.base_print()
+
+def _one_hot(index, n_values):
+    ret = np.zeros(n_values)
+    ret[index] = 1
+    return ret
+
+def _decode_one_hot(one_hot):
+    return np.argmax(one_hot)

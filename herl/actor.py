@@ -13,6 +13,7 @@ from typing import Callable, List, Union
 from herl.rl_interface import RLAgent, RLParametricModel, RLEnvironmentDescriptor
 from herl.config import torch_type
 from herl.classic_envs import MDP
+from herl.utils import _one_hot, _decode_one_hot
 
 
 class DiagonalLinear(Module):
@@ -201,6 +202,43 @@ class NeuralNetworkPolicy(NeuralNetwork, RLAgent):
 
     def get_action(self, state):
         return NeuralNetwork.__call__(self, torch.tensor(state, dtype=torch_type)).detach().numpy()
+
+
+class SoftMaxNeuralNetworkPolicy(NeuralNetwork, RLAgent):
+
+    def __init__(self, rl_environment_descriptor: RLEnvironmentDescriptor,
+                 h_layers: List[int], act_functions: List[Callable], output_function=None):
+        # TODO: currently works only with one hot encoding
+        RLAgent.__init__(self, deterministic=True)
+        NeuralNetwork.__init__(self,
+                               [rl_environment_descriptor.state_dim],
+                               h_layers + [rl_environment_descriptor.action_dim],
+                               act_functions, output_function)
+        self._n_classes = rl_environment_descriptor.action_dim
+
+    def get_vector_probabilities(self, state, differentiable=False):
+        net_input = state
+        if not differentiable:
+            net_input = torch.tensor(state)
+        p = NeuralNetwork.__call__(self, net_input, differentiable=True)
+        if len(p.shape)== 1:
+             ret = torch.exp(p)/torch.sum(torch.exp(p))
+        else:
+             ret = torch.exp(p)/torch.sum(torch.exp(p), dim=1)
+        if not differentiable:
+            return ret.detach().numpy()
+        return ret
+
+    def get_prob(self, state: Union[np.ndarray, torch.Tensor],
+                 action: Union[np.ndarray, torch.Tensor], differentiable: bool=False) -> Union[np.ndarray, torch.Tensor]:
+        p = self.get_vector_probabilities(state, differentiable=differentiable)
+        a_index = _decode_one_hot(action)
+        return p[a_index]
+
+    def get_action(self, state):
+        p = self.get_vector_probabilities(state, differentiable=False)
+        return _one_hot(np.random.choice(range(len(p)), p=p), self._n_classes)
+
 
 
 class FixedGaussianNeuralNetworkPolicy(NeuralNetwork, RLAgent):
@@ -440,7 +478,7 @@ class TabularPolicy(RLAgent, nn.Module, RLParametricModel):
     def get_prob(self, state: Union[np.ndarray, torch.Tensor],
                  action: Union[np.ndarray, torch.Tensor], differentiable: bool=False) -> Union[np.ndarray, torch.Tensor]:
 
-        prob = nn.Module.__call__(selg, state)
+        prob = nn.Module.__call__(self, state)
         if differentiable:
             return prob[action]
         else:

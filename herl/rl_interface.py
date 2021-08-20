@@ -330,7 +330,7 @@ class RLTask:
                 ret = self.step(starting_action)
                 start = False
             else:
-                ret = self.step(policy(self.current_state))
+                ret = self.step(policy.get_action(self.current_state))
             j += g * ret["reward"]
             g *= self.gamma
             t = ret["terminal"]

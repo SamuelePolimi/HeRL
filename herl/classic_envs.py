@@ -3,7 +3,7 @@ import numpy as np
 from gym.spaces import Box
 
 from herl.rl_interface import RLEnvironment, StochasticState
-
+from herl.utils import _one_hot, _decode_one_hot
 
 def env_from_gym(gym_env):
     return RLEnvironment(gym_env.observation_space.shape[0],
@@ -152,20 +152,32 @@ class MDP_core:
 
 class MDP(RLEnvironment):
 
-    def __init__(self, n_states, n_actions, ergodic=True):
-        RLEnvironment.__init__(self, InfoBox(np.array([0]), np.array([n_states-1])),
-                               InfoBox(np.array([0]), np.array([n_actions-1])),
-                               lambda: MDP_core(n_states, n_actions, ergodic=ergodic),
-                               True, False, False)
+    def __init__(self, n_states, n_actions, ergodic=True, one_hot=False):
+        # TODO: ergodic not used (yet)
+        if one_hot:
+            RLEnvironment.__init__(self, InfoBox(np.array([0]*n_states), np.array([1]*n_states)),
+                                   InfoBox(np.array([0]*n_actions), np.array([1]*n_actions)),
+                                   lambda: MDP_core(n_states, n_actions, ergodic=ergodic),
+                                   True, False, False)
+        else:
+            RLEnvironment.__init__(self, InfoBox(np.array([0]), np.array([n_states-1])),
+                                   InfoBox(np.array([0]), np.array([n_actions-1])),
+                                   lambda: MDP_core(n_states, n_actions, ergodic=ergodic),
+                                   True, False, False)
+        self._one_hot = one_hot
 
     def get_initial_state_sampler(self):
         sampler = lambda: np.random.choice(range(self.env._n_states), p=self.env._mu_0, size=1)
         return StochasticState(sampler)
 
-    def get_states(self):
+    def get_states(self, one_hot=False):
+        if one_hot:
+            return [_one_hot(s, self.env._n_states) for s in range(self.env._n_states)]
         return range(self.env._n_states)
 
-    def get_actions(self):
+    def get_actions(self, one_hot=False):
+        if one_hot:
+            return [_one_hot(s, self.env._n_actions) for s in range(self.env._n_actions)]
         return range(self.env._n_actions)
 
     def get_reward_matrix(self):
@@ -178,16 +190,25 @@ class MDP(RLEnvironment):
         return self.env._P
 
     def reset(self, state=None):
-        return self.env.reset(state)
+        ret = self.env.reset(state)
+        if self._one_hot:
+            ret = _one_hot(ret, self.env._n_states)
+        return ret
 
     def reset_dstribution(self):
         self._current_distr = self.env._mu_0
 
     def step(self, a):
-        return self.env.step(a)
+        a_env = a
+        if self._one_hot:
+            a_env = _decode_one_hot(a)
+        n_s, r, t, i = self.env.step(a_env)
+        if self._one_hot:
+            n_s = _one_hot(n_s, self.env._n_states)
+        return n_s, r, t, i
 
     def copy(self):
-        mdp = MDP(self.env._n_states, self.env._n_actions, self.env._ergodic)
+        mdp = MDP(self.env._n_states, self.env._n_actions, self.env._ergodic, self._one_hot)
         mdp.env._r = self.env._r
         mdp.env._mu_0 = self.env._mu_0
         mdp.env._P = self.env._P
