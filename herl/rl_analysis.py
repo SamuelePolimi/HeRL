@@ -36,6 +36,20 @@ class MCEstimate:
                                    min_samples=self.min_samples,
                                    max_samples=self.max_samples)
 
+def finite_difference(f: Callable, x, n_sample:int, delta=1e-5):
+
+    y = sum([f(x) for _ in range(n_sample)])/n_sample
+    grad = np.zeros_like(params)
+    for i in range(params.shape[0]):
+        x_delta = x.copy()
+        x_delta[i] = params[i] + delta
+
+        y_delta = sum([f(x_delta) for _ in range(n_sample)])/n_sample
+
+        grad[i] = (y_delta - y) / delta
+
+    return grad
+
 
 def montecarlo_estimate(task, state=None, action=None, policy=None, abs_confidence=0.1,
                         min_samples=1, max_samples=100):
@@ -333,7 +347,9 @@ class MDPAnalyzer:
     def get_policy_gradient(self):
         j = self.get_return()
         j.backward()
-        return self._policy.get_gradient()
+        ret = self._policy.get_gradient()
+        self._policy.zero_grad()
+        return ret
 
     def get_alternative_policy_gradient(self):
         P = self.get_P_policy()
@@ -346,5 +362,7 @@ class MDPAnalyzer:
 
         j = - torch.inner(mu.detach(), A @ v.detach())
         j.backward()
-        return self._policy.get_gradient()
+        ret = self._policy.get_gradient()
+        self._policy.zero_grad()
+        return ret
 
