@@ -448,6 +448,7 @@ class GaussianNoisePerturber(RLAgent):
     def get_gradient(self):
         return self._policy.get_gradient()
 
+
 class TabularPolicy(RLAgent, nn.Module, RLParametricModel):
 
     def __init__(self, mdp:MDP):
