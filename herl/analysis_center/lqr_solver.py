@@ -155,6 +155,7 @@ class LQRAnalyzer(Critic, PolicyGradient, Online):
         name = "LQR"
         Actor.__init__(self, name, policy)
         Online.__init__(self, name, rl_task)
+        self._gamma = rl_task.get_descriptor().gamma
         self.lqr = rl_task.environment
         self._deterministic = self.policy.is_deterministic()
         self.K = np.diag(self.policy.linear._parameters['weight'].detach().numpy())
@@ -164,6 +165,16 @@ class LQRAnalyzer(Critic, PolicyGradient, Online):
             return compute_lqg_V(state, self._task, self.K)
         else:
             return compute_lqg_V(state, self._task, self.K, self.policy._cov)
+
+    def get_Q(self, state: np.ndarray, action: np.ndarray) -> np.ndarray:
+        #TODO: is actually biased, as it does not take in account stochasticity
+        next_state = state @ self.lqr._A.T + action @ self.lqr._A.T
+        reward = -np.sum((state @ self.lqr._R.T) * state + (action @ self.lqr._Q.T) * action, axis=1, keepdims=True)
+        if self._deterministic:
+            return reward + self._gamma * compute_lqg_V(next_state, self._task, self.K)
+        else:
+            return reward + self._gamma\
+                   * compute_lqg_V(next_state, self._task, self.K, self.policy._cov)
 
     def get_return(self) -> np.ndarray:
         if self._task.get_descriptor().initial_state_distribution.is_deterministic():

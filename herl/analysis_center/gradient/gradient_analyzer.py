@@ -59,7 +59,7 @@ class OffPolicyGradientAnalyzer(BaseAnalyzer):
 
     def __init__(self, task, verbose=True, **algorithm_constructors):
         """
-        This class analyzes the most important quantities for a critic.
+        This class analyzes the most important quantities for a gradient estimator.
         :param task:
         :type task: RLTask
         """
