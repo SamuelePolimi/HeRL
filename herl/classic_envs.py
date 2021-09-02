@@ -1,6 +1,8 @@
 import gym
 import numpy as np
+from typing import Union
 from gym.spaces import Box
+
 
 from herl.rl_interface import RLEnvironment, StochasticState
 from herl.utils import _one_hot, _decode_one_hot
@@ -14,7 +16,7 @@ def env_from_gym(gym_env):
 class InfoBox(Box):
 
     def __init__(self, low, high, description=None, symbol=None):
-        super().__init__(low, high)
+        super().__init__(low, high, dtype=np.float64)       # TODO: Check dtype
         self.description = description
         self.symbol = symbol
 
@@ -114,26 +116,147 @@ class Pendulum2D(RLEnvironment):
         return self.env.close()
 
 
-class MDP_core:
+class MDPFeatureInterface:
 
-    def __init__(self, n_states, n_actions, ergodic=True):
+    def __init__(self, n_states, n_actions):
         self._n_states = n_states
         self._n_actions = n_actions
-        self._ergodic = ergodic
+        self.state_box = None  # type:Union[None, InfoBox]
+        self.action_box = None  # type:Union[None, InfoBox]
 
-        self._P = np.random.uniform(size=(n_actions, n_states, n_states))
-        self._r = np.random.uniform(size=(n_actions, n_states))
+    def codify_state(self, state):
+        pass
 
-        for a in range(n_actions):
-            for s in range(n_states):
-                self._P[a, s] = self._P[a, s]/np.sum(self._P[a, s])
+    def decodify_state(self, state_features):
+        pass
 
-        self._mu_0 = np.random.uniform(size=(n_states))
-        self._mu_0 = self._mu_0/np.sum(self._mu_0)
+    def codify_action(self, action):
+        pass
+
+    def decodify_action(self, action_features):
+        pass
+
+
+class OneHotMDPFeatures(MDPFeatureInterface):
+
+    def __init__(self, n_states, n_actions):
+        MDPFeatureInterface.__init__(self, n_states, n_actions)
+        self.state_box = InfoBox(np.zeros(n_states), np.ones(n_states))
+        self.action_box = InfoBox(np.zeros(n_actions), np.ones(n_actions))
+
+    def codify_state(self, state):
+        return _one_hot(state, self._n_states)
+
+    def decodify_state(self, state_features):
+        return _decode_one_hot(state_features)
+
+    def codify_action(self, action):
+        return _one_hot(action, self._n_states)
+
+    def decodify_action(self, action_features):
+        return _decode_one_hot(action_features)
+
+
+class ImaniFeatures(MDPFeatureInterface):
+
+    def __init__(self):
+        MDPFeatureInterface.__init__(self, 4, 2)
+        self._state_matrix = np.array([[0, 1, 0],
+                                 [0, 0, 1],
+                                 [0, 0, 1],
+                                 [1, 0, 0]])
+
+    def codify_state(self, state):
+        return self._state_matrix[state]
+
+    def decodify_state(self, state_features):
+        return np.asscalar(np.min(np.where((self._state_matrix == state_features).all(axis=1))))
+
+    def codify_action(self, action):
+        return _one_hot(action, self._n_states)
+
+    def decodify_action(self, action_features):
+        return _decode_one_hot(action_features)
+
+
+def get_random_mdp_core(n_states, n_actions):
+    P = np.random.uniform(size=(n_actions, n_states, n_states))
+    R = np.random.uniform(size=(n_actions, n_states))
+
+    for a in range(n_actions):
+        for s in range(n_states):
+            P[a, s] = P[a, s]/np.sum(P[a, s])
+
+    mu_0 = np.random.uniform(size=(n_states))
+    mu_0 = mu_0/np.sum(mu_0)
+
+    return MDPCore(P, R, mu_0)
+
+
+def get_imani_mdp():
+    """
+    Section 5.1, Figure 1, https://arxiv.org/pdf/1811.09013.pdf.
+    """
+    n_actions = 2
+    n_states = 4
+    P = np.array([
+      # Action 0
+      [[0, 1, 0, 0],
+       [0, 0, 0, 1],
+       [0, 0, 0, 1],
+       [0, 0, 0, 1]],
+      # Action 1
+      [[0, 0, 1, 0],
+       [0, 0, 0, 1],
+       [0, 0, 0, 1],
+       [0, 0, 0, 1]]
+    ])
+    R = np.array(
+        # Action 0
+        [0, 2, 0, 0],
+        # Action 1
+        [0, 0, 1, 0]
+    )
+
+    mu_0 = np.array([1, 0, 0, 0])
+
+    features = ImaniFeatures()
+
+    return MDP(MDPCore(P, R, mu_0), features)
+
+
+class MDPCore:
+
+    def __init__(self, P, R, mu_0):
+
+        if P.shape[0] != R.shape[0]:
+            raise Exception("P.shape[0] must be equal to R.shape[0]")
+        n_actions = P.shape[0]
+
+        if P.shape[1] != P.shape[2]:
+            raise Exception("P.shape[1] must be equal to P.shape[2]")
+
+        if P.shape[1] != R.shape[1]:
+            raise Exception("P.shape[1] must be equal to R.shape[1]")
+
+        n_states = P.shape[1]
+
+        self._n_states = n_states
+        self._n_actions = n_actions
+        self._ergodic = self.is_ergodic()
+
+        self._P = P
+        self._r = R
+
+        self._mu_0 = mu_0
+
         self._current_state = None
         self._current_distr = None
 
         self.reset()
+
+    def is_ergodic(self):   # TODO: implement
+        return True
 
     def reset(self, state=None):
         if state is None:
@@ -150,34 +273,37 @@ class MDP_core:
         self._current_state = np.random.choice(range(self._n_states), p=p, size=1)
         return self._current_state, r, False, None
 
+
 class MDP(RLEnvironment):
 
-    def __init__(self, n_states, n_actions, ergodic=True, one_hot=False):
+    def __init__(self, mdp_core:MDPCore, encode: Union[None, MDPFeatureInterface]=None):
         # TODO: ergodic not used (yet)
-        if one_hot:
-            RLEnvironment.__init__(self, InfoBox(np.array([0]*n_states), np.array([1]*n_states)),
-                                   InfoBox(np.array([0]*n_actions), np.array([1]*n_actions)),
-                                   lambda: MDP_core(n_states, n_actions, ergodic=ergodic),
+        n_states = mdp_core._n_states
+        n_actions = mdp_core._n_actions
+        if encode is not None:
+            RLEnvironment.__init__(self, encode.state_box, encode.action_box,
+                                   lambda: mdp_core,
                                    True, False, False)
         else:
             RLEnvironment.__init__(self, InfoBox(np.array([0]), np.array([n_states-1])),
                                    InfoBox(np.array([0]), np.array([n_actions-1])),
-                                   lambda: MDP_core(n_states, n_actions, ergodic=ergodic),
+                                   lambda: mdp_core,
                                    True, False, False)
-        self._one_hot = one_hot
+        self._features = encode
+        self._featurized = encode is not None
 
     def get_initial_state_sampler(self):
         sampler = lambda: np.random.choice(range(self.env._n_states), p=self.env._mu_0, size=1)
         return StochasticState(sampler)
 
-    def get_states(self, one_hot=False):
-        if one_hot:
-            return [_one_hot(s, self.env._n_states) for s in range(self.env._n_states)]
+    def get_states(self, featurize=False):
+        if featurize:
+            return [self._features.codify_state(s) for s in range(self.env._n_states)]
         return range(self.env._n_states)
 
-    def get_actions(self, one_hot=False):
-        if one_hot:
-            return [_one_hot(s, self.env._n_actions) for s in range(self.env._n_actions)]
+    def get_actions(self, featurize=False):
+        if featurize:
+            return [self._features.codify_action(a) for a in range(self.env._n_actions)]
         return range(self.env._n_actions)
 
     def get_reward_matrix(self):
@@ -191,8 +317,8 @@ class MDP(RLEnvironment):
 
     def reset(self, state=None):
         ret = self.env.reset(state)
-        if self._one_hot:
-            ret = _one_hot(ret, self.env._n_states)
+        if self._featurized:
+            ret = self._features.codify_state(ret)
         return ret
 
     def reset_dstribution(self):
@@ -200,18 +326,15 @@ class MDP(RLEnvironment):
 
     def step(self, a):
         a_env = a
-        if self._one_hot:
-            a_env = _decode_one_hot(a)
+        if self._featurized:
+            a_env = self._features.decodify_action(a)
         n_s, r, t, i = self.env.step(a_env)
-        if self._one_hot:
-            n_s = _one_hot(n_s, self.env._n_states)
+        if self._featurized:
+            n_s = self._features.codify_state(n_s)
         return n_s, r, t, i
 
     def copy(self):
-        mdp = MDP(self.env._n_states, self.env._n_actions, self.env._ergodic, self._one_hot)
-        mdp.env._r = self.env._r
-        mdp.env._mu_0 = self.env._mu_0
-        mdp.env._P = self.env._P
+        mdp = MDP(MDPCore(self.env._P, self.env._r, self.env._mu_0), self._features)
         mdp.env.reset()
         return mdp
 
