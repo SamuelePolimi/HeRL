@@ -283,12 +283,13 @@ def norm_angle(angle):
         return norm_angle(angle + 2*np.pi)
     return angle
 
+
 class MDPAnalyzer:
 
-    def __init__(self, task:RLTask, policy:RLAgent):
+    def __init__(self, task: RLTask, policy: RLAgent):
         self._task = task
         if type(self._task.environment) is not MDP:
-            raise("task.environemnt should be an MDP!")
+            raise Exception("task.environemnt should be an MDP!")
         self._mdp = task.environment # type: MDP
         self._policy = policy
 
@@ -303,8 +304,8 @@ class MDPAnalyzer:
 
     def _get_action_prob(self, state, action, differentiable=True):
         s, a = state, action
-        if self._mdp._one_hot:
-            s, a = _one_hot(state, self._n_states), _one_hot(action, self._n_actions)
+        if self._mdp._featurized:
+            s, a = self._mdp._features.codify_state(state), self._mdp._features.codify_action(action)
         if differentiable:
             s, a = torch.tensor(s), torch.tensor(a)
         return self._policy.get_prob(s, a, differentiable=differentiable)
@@ -315,7 +316,7 @@ class MDPAnalyzer:
 
             T = 0.
             for a in self._mdp.get_actions():
-                T +=  torch.tensor(self._P[a, s]) * self._get_action_prob(s, a, differentiable=True)
+                T += torch.tensor(self._P[a, s]) * self._get_action_prob(s, a, differentiable=True)
 
             P[s, :] = T
 
