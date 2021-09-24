@@ -1,6 +1,8 @@
 import gym
 import numpy as np
 from typing import Union
+
+import torch
 from gym.spaces import Box
 
 
@@ -157,7 +159,7 @@ class OneHotMDPFeatures(MDPFeatureInterface):
         return _decode_one_hot(action_features)
 
 
-class ImaniFeatures(MDPFeatureInterface):
+class ImaniFeaturesBackup(MDPFeatureInterface):
 
     def __init__(self):
         MDPFeatureInterface.__init__(self, 4, 2)
@@ -165,18 +167,51 @@ class ImaniFeatures(MDPFeatureInterface):
                                  [0, 0, 1],
                                  [0, 0, 1],
                                  [1, 0, 0]])
+        self.state_box = InfoBox(np.zeros(3), np.ones(3))
+        self.action_box = InfoBox(np.zeros(2), np.ones(2))
 
     def codify_state(self, state):
-        return self._state_matrix[state]
+        if hasattr(state, "shape") and len(state.shape) > 0:
+            ret = [self._state_matrix[int(x)] for x in state]
+        else:
+            ret = self._state_matrix[int(state)]
+        if type(state) is torch.Tensor:
+            return torch.tensor(ret)
+        return np.array(ret)
 
     def decodify_state(self, state_features):
-        return np.asscalar(np.min(np.where((self._state_matrix == state_features).all(axis=1))))
+        try:
+            if len(state_features.shape) > 1:
+                ret = [np.asscalar(np.min(np.where((self._state_matrix == s).all(axis=1)))) for s in state_features]
+                return np.array(ret)
+            return np.asscalar(np.min(np.where((self._state_matrix == state_features).all(axis=1))))
+        except:
+            print("shit")
 
     def codify_action(self, action):
         return _one_hot(action, self._n_states)
 
     def decodify_action(self, action_features):
         return _decode_one_hot(action_features)
+
+
+class ImaniFeatures(MDPFeatureInterface):
+
+    def __init__(self):
+        MDPFeatureInterface.__init__(self, 4, 2)
+        self._state_matrix = np.array([[0], [1], [1], [3]])
+
+    def codify_state(self, state):
+        if hasattr(state, "shape") and len(state.shape) > 0:
+            ret = [self._state_matrix[int(x)] for x in state]
+        else:
+            ret = self._state_matrix[int(state)]
+        if type(state) is torch.Tensor:
+            return torch.tensor(ret)
+        return np.array(ret)
+
+    def codify_action(self, action):
+        return action
 
 
 def get_random_mdp_core(n_states, n_actions):
@@ -213,16 +248,16 @@ def get_imani_mdp():
     ])
     R = np.array(
         # Action 0
-        [0, 2, 0, 0],
+        [[0, 2, 0, 0],
         # Action 1
-        [0, 0, 1, 0]
+        [0, 0, 1, 0]]
     )
 
     mu_0 = np.array([1, 0, 0, 0])
 
     features = ImaniFeatures()
 
-    return MDP(MDPCore(P, R, mu_0), features)
+    return MDP(MDPCore(P, R, mu_0)), features
 
 
 class MDPCore:
@@ -273,14 +308,21 @@ class MDPCore:
         self._current_state = np.random.choice(range(self._n_states), p=p, size=1)
         return self._current_state, r, False, None
 
+    def copy(self):
+        return MDPCore(self._P, self._r, self._mu_0)
+
+
+# TODO: Remove features from MDP
+
 
 class MDP(RLEnvironment):
 
-    def __init__(self, mdp_core:MDPCore, encode: Union[None, MDPFeatureInterface]=None):
+    def __init__(self, mdp_core: MDPCore, encode: Union[None, MDPFeatureInterface]=None):
         # TODO: ergodic not used (yet)
         n_states = mdp_core._n_states
         n_actions = mdp_core._n_actions
         if encode is not None:
+            raise Exception("Use3 of features in MDP is deprecated")
             RLEnvironment.__init__(self, encode.state_box, encode.action_box,
                                    lambda: mdp_core,
                                    True, False, False)
@@ -291,6 +333,12 @@ class MDP(RLEnvironment):
                                    True, False, False)
         self._features = encode
         self._featurized = encode is not None
+
+    def is_featurized(self):
+        return self._featurized
+
+    def get_features(self):
+        return self._features
 
     def get_initial_state_sampler(self):
         sampler = lambda: np.random.choice(range(self.env._n_states), p=self.env._mu_0, size=1)
