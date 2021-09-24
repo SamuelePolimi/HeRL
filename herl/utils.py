@@ -1,5 +1,10 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
+import git
+import warnings
+import pathlib
+
 
 class Printable:
 
@@ -66,10 +71,36 @@ class ProgressBar:
         if self._iteration >= self.max_iteration:
             self.printable.base_print()
 
+
 def _one_hot(index, n_values):
-    ret = np.zeros(n_values)
-    ret[index] = 1
+
+    ret = None
+
+    if hasattr(index, "shape") and len(index.shape) > 0:
+            n_entries = index.shape[0]
+            ret = np.zeros((n_entries, n_values))
+            ret[range(n_entries), index] = 1
+
+    if ret is None:
+        ret = np.zeros(n_values)
+        ret[index] = 1
+
+    if type(index) is torch.Tensor:
+        return torch.tensor(ret)
+
     return ret
 
+
 def _decode_one_hot(one_hot):
-    return np.argmax(one_hot)
+    return np.argmax(one_hot, axis=-1)
+
+def _check_update():
+    repo = git.Repo(pathlib.Path(__file__).parent.parent.resolve())
+    sha = repo.head.object.hexsha
+
+    remote_heads = git.cmd.Git().ls_remote(r"git@github.com:SamuelePolimi/HeRL.git", heads=True)
+
+    if sha != remote_heads.split()[0]:
+        warnings.warn("The local repository of HeRL is not up to date. Pull to obtain the updated version.")
+
+
