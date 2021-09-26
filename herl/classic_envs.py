@@ -79,7 +79,10 @@ class LQR(RLEnvironment):
 
 
 class Pendulum2D(RLEnvironment):
-
+    """
+    Pendulum described with 2 variables: angle (in radiants, where top is 0, and bottom +-pi) and angular velocity.
+    Actions range -2 and 2 and they can be seen as torque.
+    """
     # TODO: remove initial state
     def __init__(self, initial_state=None):
         init_det = initial_state is not None

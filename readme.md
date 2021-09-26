@@ -22,8 +22,10 @@ Examples
 ```
 
 - [ ] Comment all the methods and write the types
-- [ ] Visualizer class? (In order to save partial results)
-- [ ] Delete old analyzers
+- [x] Visualizer class? (In order to save partial results)
+- [ ] Refractor Analyzers and clean the code
+- [ ] Require the Actors to receive only 2d vectors as input
+- [ ] Make the library to work only with torch (use numpy only where strictly necessary)
 - [ ] Think if there is the need to move some class to more appropriate files
 
 

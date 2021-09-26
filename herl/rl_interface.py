@@ -384,7 +384,7 @@ class RLTask:
 
 class RLAgent:
 
-    def __init__(self, deterministic: bool = False, symbol: str = r"\pi"):
+    def __init__(self, env_descriptor:RLEnvironmentDescriptor, deterministic: bool = False, symbol: str = r"\pi"):
         """
         Defines an agent interactin in a RLEnvironment
         :param deterministic: If the agent is deterministic, it will always perform the same action given the same state.
@@ -392,41 +392,43 @@ class RLAgent:
         """
         self._deterministic = deterministic
         self.symbol = symbol
+        self._env_descriptor = env_descriptor
+        self._action_dim = env_descriptor.action_dim
+        self._state_dim = env_descriptor.state_dim
 
-    def __call__(self, state: Union[np.ndarray, torch.Tensor],
-                 differentiable: bool = False) -> Union[np.ndarray, torch.Tensor]:
+    def __call__(self, state: torch.Tensor,
+                 differentiable: bool = False) -> torch.Tensor:
         """
-        Retreive the action(s) performed by the agent in a state (or array of states). When differentiable allows
-        for the computation of the gradient.
-        :param state: d or nxd vector (d = state_dim, n = number of states)
-        :param differentiable: use torch graph when differentiable
-        :return: torch or numpy representation of the action.
+        !! differentiable will be soon removed !!
+
+        Sample n actions given n states
+        :param state: n x d_s vector of states where n is the number of states, and d_s is the dimensionality of the state
+        :param differentiable: use torch graph when differentiable (OBSOLETE)
+        :return: n x d_a vector of actions where n is the number of actions and d_a is the dimensionality of the actions
         """
         raise NotImplemented()
 
-    def get_prob(self, state: Union[np.ndarray, torch.Tensor],
-                 action: Union[np.ndarray, torch.Tensor], differentiable: bool=False) \
-                    -> Union[np.ndarray, torch.Tensor]:
+    def get_prob(self, state: torch.Tensor,
+                 action: torch.Tensor, differentiable: bool=False) \
+                    -> torch.Tensor:
         """
-        Retreive the probability of an action given a state. When differentiable allow the construction of a
-        computational graph.
-        :param state: state of the agent
-        :param action: action
-        :return:
+        Probabiliby of the actions given the states
+        :param state: n x d_s vector of n states with dimensionality d_s
+        :param action: n x d_a vector of n actions with dimensionality d_a
+        :return: n x 1 vector (density) of probabilities
         """
         raise NotImplemented()
 
-    def get_log_prob(self, state: Union[np.ndarray, torch.Tensor],
-                 action: Union[np.ndarray, torch.Tensor], differentiable: bool=False) \
-                    -> Union[np.ndarray, torch.Tensor]:
+    def get_log_prob(self, state: torch.Tensor,
+                 action: torch.Tensor, differentiable: bool=False) \
+                    -> torch.Tensor:
         """
-        Retreive the probability of an action given a state. When differentiable allow the construction of a
-        computational graph.
-        :param state: state of the agent
-        :param action: action
-        :return:
+        Log-probabiliby of the actions given the states
+        :param state: n x d_s vector of n states with dimensionality d_s
+        :param action: n x d_a vector of n actions with dimensionality d_a
+        :return: n x 1 vector (density) of log-probabilities
         """
-        raise NotImplemented()
+        raise torch.log(self.get_prob(state, action))
 
     def is_deterministic(self):
         """
@@ -435,9 +437,50 @@ class RLAgent:
         """
         return self._deterministic
 
-    @deprecated
-    def get_action(self, state: np.ndarray):
-        pass
+    def get_action(self, state: np.ndarray) -> np.ndarray:
+        if type(state) is not np.ndarray:
+            raise Exception("State must be a np vector.")
+        if len(state.shape) != 1 or state.shape[0] != self._state_dim:
+            raise Exception("State must be of shape (d_s) d_s is the dimension of the state-space.")
+
+        state_t = torch.tensor(state)
+        a = self(state_t.view(1, self._state_dim))
+
+        return a.view(self._action_dim).detach().numpy()
+
+
+    def get_actions(self, states: np.ndarray) -> np.ndarray:
+        if type(state) is not np.ndarray:
+            raise Exception("States must be a np vector.")
+        if len(state.shape) != 2 or states.shape[1] != self._state_dim:
+            raise Exception("States must be of shape (n xd_s) d_s is the dimension of the state-space.")
+
+        state_t = torch.tensor(state)
+
+        return a.detach().numpy()
+
+    def _precondition_state(self, states: torch.Tensor) -> torch.Tensor:
+        if type(states) is not torch.Tensor:
+            raise Exception("States must be a torch tensor.")
+        if len(states.shape) != 2:
+            raise Exception("States must be of shape (n x d_s) where n is the number of states (even 1), and d_s is the dimension of the state-space.")
+        if states.shape[1] != self._state_dim:
+            raise Exception("States must be of shape (n x d_s) where n is the number of states (even 1), and d_s is the dimension of the state-space.")
+        return states
+
+    def _precondition_actions(self, actions: torch.Tensor) -> torch.Tensor:
+        if type(actions) is not torch.Tensor:
+            raise Exception("Actions must be a torch tensor.")
+        if len(actions.shape) != 2 or actions.shape[1] != self._action_dim:
+            raise Exception("Actions must be of shape (n x d_a) where n is the number of actions (even 1), and d_s is the dimension of the action-space.")
+        return actions
+
+    def _post_condition_probabilities(self, probabilities: torch.Tensor) -> torch.Tensor:
+        if type(probabilities) is not torch.Tensor:
+            raise Exception("Probabilities must be a torch tensor.")
+        if len(probabilities.shape) != 2 or actions.shape[1] != self._action_dim:
+            raise Exception("Actions must be of shape (n x d_a) where n is the number of states (even 1), and d_s is the dimension of the action-space.")
+        return probabilits
 
 
 class RLParametricModel:

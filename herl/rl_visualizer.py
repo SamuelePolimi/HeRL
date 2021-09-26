@@ -747,7 +747,7 @@ class EstimatesVisualizer(PlotVisualizer):
 
         self._data["x_label"] = hyperparameter_symbol
         self._data["y_label"] = estimate_symbol
-        self._data["title"] = "Pinco Pallino"
+        self._data["title"] = title
         self._data["truth"] = ground_truth
         self._data["p_x"] = np.array(x_scatter)
         self._data["p_y"] = np.array(y_scatter)

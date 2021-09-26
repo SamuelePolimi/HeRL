@@ -4,6 +4,8 @@ import torch
 import git
 import warnings
 import pathlib
+import json
+import herl
 
 
 class Printable:
@@ -79,7 +81,8 @@ def _one_hot(index, n_values):
     if hasattr(index, "shape") and len(index.shape) > 0:
             n_entries = index.shape[0]
             ret = np.zeros((n_entries, n_values))
-            ret[range(n_entries), index] = 1
+            for i, v in enumerate(index):
+                ret[i, v] = 1
 
     if ret is None:
         ret = np.zeros(n_values)
@@ -95,12 +98,32 @@ def _decode_one_hot(one_hot):
     return np.argmax(one_hot, axis=-1)
 
 def _check_update():
-    repo = git.Repo(pathlib.Path(__file__).parent.parent.resolve())
-    sha = repo.head.object.hexsha
+    if herl.__configurations__["check_update"]:
+        print("Checking if HeRL is updated. To disable the ckeck, run `herl.utils._write_config('check_update', False)`")
+        repo = git.Repo(pathlib.Path(__file__).parent.parent.resolve())
+        sha = repo.head.object.hexsha
 
-    remote_heads = git.cmd.Git().ls_remote(r"git@github.com:SamuelePolimi/HeRL.git", heads=True)
+        remote_heads = git.cmd.Git().ls_remote(r"git@github.com:SamuelePolimi/HeRL.git", heads=True)
 
-    if sha != remote_heads.split()[0]:
-        warnings.warn("The local repository of HeRL is not up to date. Pull to obtain the updated version.")
+        if sha != remote_heads.split()[0]:
+            warnings.warn("The local repository of HeRL is not up to date. Pull to obtain the updated version.")
+        else:
+            print("HeRL is up to date.\n")
+
+def _load_config():
+    path = pathlib.Path(__file__).parent.resolve() / "config.json"
+    f = open(path, )
+    ret = json.load(f)
+    f.close()
+    return ret
+
+
+def _write_config(name, value):
+    herl.__configurations__[name] = value
+    path = pathlib.Path(__file__).parent.resolve() / "config.json"
+    f = open(path, "w")
+    f.write(json.dumps(herl.__configurations__))
+    f.close()
+
 
 

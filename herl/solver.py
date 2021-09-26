@@ -37,7 +37,7 @@ class RLCollector:
             state = self.rl_task.reset()
             self.dataset.notify_new_trajectory()
             while i_step < self.episode_length and not terminal:
-                row = self.rl_task.step(self.policy(state))
+                row = self.rl_task.step(self.policy.get_action(state))
                 state = row["next_state"]
                 terminal = bool(row["terminal"][0])
                 if gamma_termination:

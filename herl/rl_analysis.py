@@ -307,7 +307,7 @@ class MDPAnalyzer:
         if self._mdp._featurized:
             s, a = self._mdp._features.codify_state(state), self._mdp._features.codify_action(action)
         if differentiable:
-            s, a = torch.tensor(s), torch.tensor(a)
+            s, a = torch.tensor([[s]]), torch.tensor([[a]])
         return self._policy.get_prob(s, a, differentiable=differentiable)
 
     def get_P_policy(self):
@@ -316,7 +316,8 @@ class MDPAnalyzer:
 
             T = 0.
             for a in self._mdp.get_actions():
-                T += torch.tensor(self._P[a, s]) * self._get_action_prob(s, a, differentiable=True)
+                T += torch.tensor(self._P[a, s]) * self._get_action_prob(s, a,
+                                                                        differentiable=True).squeeze()
 
             P[s, :] = T
 
@@ -328,7 +329,7 @@ class MDPAnalyzer:
         for s in self._mdp.get_states():
             r[s] = 0.
             for a in self._mdp.get_actions():
-                r[s] += torch.tensor(self._r[a, s]) * self._get_action_prob(s, a, differentiable=True)
+                r[s] += torch.tensor(self._r[a, s]) * self._get_action_prob(s, a, differentiable=True).squeeze()
 
         return r
 
@@ -347,10 +348,17 @@ class MDPAnalyzer:
 
     def get_policy_gradient(self):
         j = self.get_return()
-        j.backward()
+        j.backward(retain_graph=True)
         ret = self._policy.get_gradient()
         self._policy.zero_grad()
         return ret
+
+
+    def update_policy(self, optim):
+        j = -self.get_return()
+        j.backward()
+        optim.step()
+        optim.zero_grad()
 
     def get_alternative_policy_gradient(self):
         P = self.get_P_policy()

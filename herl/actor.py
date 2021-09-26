@@ -249,21 +249,37 @@ class FixedGaussianNeuralNetworkPolicy(NeuralNetwork, RLAgent):
         NeuralNetwork.__init__(self,
                                [rl_environment_descriptor.state_dim],
                                h_layers + [rl_environment_descriptor.action_dim],
-                               act_functions, output_function)
+                               act_functions, lambda x: x)
         self._cov = covariance
         self._a_dim = covariance.shape[0]
+        self._output_function = output_function
 
     def get_action(self, state):
-        return NeuralNetwork.__call__(self, torch.tensor(state, dtype=torch_type)).detach().numpy()
+        return NeuralNetwork.__call__(self, torch.tensor(state, dtype=torch_type), differentiable=True).detach().numpy()
 
     def __call__(self, *args, differentiable=False):
         if len(args[0].shape) == 2:
             noise = np.random.multivariate_normal(np.zeros(self._a_dim), self._cov, args[0].shape[0])
         else:
             noise = np.random.multivariate_normal(np.zeros(self._a_dim), self._cov)
+
         if differentiable:
             noise = torch.from_numpy(noise)
-        return NeuralNetwork.__call__(self,  args[0], differentiable=differentiable) + noise
+            if self._output_function is not None:
+                return self._output_function(NeuralNetwork.__call__(self, args[0], differentiable=differentiable) + noise)
+            else:
+                return NeuralNetwork.__call__(self, args[0], differentiable=differentiable)
+        else:
+            if self._output_function is not None:
+                return self._output_function(
+                    torch.tensor(NeuralNetwork.__call__(self, args[0], differentiable=differentiable))
+                    + torch.from_numpy(noise)).detach().numpy()
+            else:
+                return NeuralNetwork.__call__(self, args[0], differentiable=differentiable) + noise
+
+
+
+
 
     def get_prob(self, state: Union[np.ndarray, torch.Tensor],
                  action: Union[np.ndarray, torch.Tensor],
@@ -454,53 +470,43 @@ class TabularPolicy(RLAgent, nn.Module, RLParametricModel):
     def __init__(self, mdp: MDP):
 
         nn.Module.__init__(self)
+        RLAgent.__init__(self, mdp.get_descriptor())
         self._n_actions = len(mdp.get_actions())
         self._n_states = len(mdp.get_states())
         self._mdp = mdp
 
         self._m = Parameter(torch.tensor(np.random.uniform(size=self._n_states*self._n_actions), requires_grad=True))
-
-        self.register_parameter("table", self._m)
+        #
+        # self.register_parameter("table", self._m)
 
     def forward(self, x):
         # TODO: make it work for vecrotial input
         self._M = torch.reshape(self._m, shape=(self._n_states, self._n_actions))
         self.tabular = torch.exp(self._M)/torch.sum(torch.exp(self._M), dim=1).unsqueeze(1)
-        return self.tabular[x.squeeze()]
+        return self.tabular[x.long()]
 
     def __call__(self, *args, differentiable=False):
         if len(args) != 1:
             raise Exception("tabular policy needs only one argument")
 
-        a = args[0]
-        if differentiable:
-            d = torch.distributions.Categorical(probs=nn.Module.__call__(self, torch.tensor(a)))
-            return d.sample().unsqueeze(0)
-        else:
-            d = torch.distributions.Categorical(probs=nn.Module.__call__(self, a))
-            return d.sample().unsqueeze(0).detach().numpy()
+        states = args[0]
+        states = self._precondition_state(states)
+        d = torch.distributions.Categorical(probs=nn.Module.__call__(self, states.long()))
+        return d.sample()
 
-    def get_prob(self, state: Union[np.ndarray, torch.Tensor],
-                 action: Union[np.ndarray, torch.Tensor], differentiable: bool=False) -> Union[np.ndarray, torch.Tensor]:
+    def get_prob(self, state: torch.Tensor,
+                 action: torch.Tensor, differentiable: bool=False) -> torch.Tensor:
 
-        s, a = state, action
-        if differentiable:
-            s, a = s.detach().numpy(), a.detach().numpy()
+        s, a = self._precondition_state(state), self._precondition_actions(action)
 
-        s = torch.tensor(s)
-        a = torch.tensor(a)
+        prob = nn.Module.__call__(self, s.view(-1))
+        return prob.gather(-1, a)
 
-        prob = nn.Module.__call__(self, s)
-        if differentiable:
-            return prob[a]
-        else:
-            return prob[torch.tensor(a)].clone().detach().numpy()
 
-    def get_log_prob(self, state: Union[np.ndarray, torch.Tensor],
-                 action: Union[np.ndarray, torch.Tensor], differentiable: bool=False) -> Union[np.ndarray, torch.Tensor]:
-        if differentiable:
-            return torch.log(self.get_prob(state, action, differentiable=differentiable))
-        return np.log(self.get_prob(state, action, differentiable=differentiable))
+    def get_log_prob(self, state: torch.Tensor,
+                 action: torch.Tensor, differentiable: bool=False) -> torch.Tensor:
+
+        return torch.log(self.get_prob(state, action, differentiable=differentiable))
 
     def save(self, path):
         """
