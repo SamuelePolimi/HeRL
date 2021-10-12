@@ -84,7 +84,7 @@ class RLCollector:
                 i_step += 1
 
             while i_step < self.episode_length and not terminal:
-                row = self.rl_task.step(self.policy(state))
+                row = self.rl_task.step(self.policy.get_action(state))
                 state = row["next_state"]
                 terminal = row["terminal"]
                 if gamma_termination:

@@ -245,7 +245,7 @@ class FixedGaussianNeuralNetworkPolicy(NeuralNetwork, RLAgent):
 
     def __init__(self, rl_environment_descriptor: RLEnvironmentDescriptor,
                  h_layers: List[int], act_functions: List[Callable], covariance: np.ndarray, output_function=None):
-        RLAgent.__init__(self, deterministic=False)
+        RLAgent.__init__(self,rl_environment_descriptor, deterministic=False)
         NeuralNetwork.__init__(self,
                                [rl_environment_descriptor.state_dim],
                                h_layers + [rl_environment_descriptor.action_dim],
@@ -258,27 +258,15 @@ class FixedGaussianNeuralNetworkPolicy(NeuralNetwork, RLAgent):
         return NeuralNetwork.__call__(self, torch.tensor(state, dtype=torch_type), differentiable=True).detach().numpy()
 
     def __call__(self, *args, differentiable=False):
-        if len(args[0].shape) == 2:
-            noise = np.random.multivariate_normal(np.zeros(self._a_dim), self._cov, args[0].shape[0])
+        states = args[0]
+
+        noise = np.random.multivariate_normal(np.zeros(self._a_dim), self._cov, states.shape[0])
+        noise = torch.from_numpy(noise)
+
+        if self._output_function is not None:
+            return self._output_function(NeuralNetwork.__call__(self, args[0], differentiable=True) + noise)
         else:
-            noise = np.random.multivariate_normal(np.zeros(self._a_dim), self._cov)
-
-        if differentiable:
-            noise = torch.from_numpy(noise)
-            if self._output_function is not None:
-                return self._output_function(NeuralNetwork.__call__(self, args[0], differentiable=differentiable) + noise)
-            else:
-                return NeuralNetwork.__call__(self, args[0], differentiable=differentiable)
-        else:
-            if self._output_function is not None:
-                return self._output_function(
-                    torch.tensor(NeuralNetwork.__call__(self, args[0], differentiable=differentiable))
-                    + torch.from_numpy(noise)).detach().numpy()
-            else:
-                return NeuralNetwork.__call__(self, args[0], differentiable=differentiable) + noise
-
-
-
+            return NeuralNetwork.__call__(self, args[0], differentiable=True)
 
 
     def get_prob(self, state: Union[np.ndarray, torch.Tensor],
@@ -317,16 +305,15 @@ class ConstantPolicy(RLAgent):
 
 class UniformPolicy(RLAgent):
 
-    def __init__(self, low, high):
-        super().__init__()
+    def __init__(self, env_descriptor: RLEnvironmentDescriptor, low, high):
+        RLAgent.__init__(self, env_descriptor)
         self._low = low
         self._high = high
 
     def __call__(self, state, differentiable=False):
-        if differentiable:
-            raise torch.tensor(np.random.uniform(self._low, self._high), dtype=torch_type)
-        else:
-            return np.random.uniform(self._low, self._high)
+        self._precondition_state(state)
+        return torch.tensor(np.random.uniform(self._low, self._high, size=state.shape[0]), dtype=torch_type)
+
 
     def get_action(self, state):
         return np.random.uniform(self._low, self._high)
@@ -536,6 +523,16 @@ class TabularPolicy(RLAgent, nn.Module, RLParametricModel):
             params.append(param.numpy().ravel())
 
         return np.concatenate(params)
+
+    def get_torch_parameters(self):
+        state_dict = self.state_dict()
+
+        params = []
+        for name, param in state_dict.items():
+            # Transform the parameter as required.
+            params.append(param.view(-1))
+
+        return self._m.view(-1)
 
     def set_parameters(self, values):
         state_dict = self.state_dict()

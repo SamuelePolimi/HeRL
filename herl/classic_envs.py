@@ -202,7 +202,7 @@ class ImaniFeatures(MDPFeatureInterface):
 
     def __init__(self):
         MDPFeatureInterface.__init__(self, 4, 2)
-        self._state_matrix = np.array([[0], [1], [1], [3]])
+        self._state_matrix = np.array([[0], [1], [1], [2]])
 
     def codify_state(self, state):
         if hasattr(state, "shape") and len(state.shape) > 0:

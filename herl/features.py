@@ -22,10 +22,8 @@ class CriticFeatures:
         self._features = feature_constructor(dims, n_features, **kwargs)
 
     def __call__(self, s, a, differentiable=False):
-        ret = self._features(np.concatenate([s, a], axis=-1))
-        if differentiable:
-            return torch.tensor(ret)
-        return ret
+        ret = self._features(np.concatenate([s.detach().numpy(), a.detach().numpy()], axis=-1))
+        return torch.tensor(ret)
 
 class TileCoding:
 
@@ -51,5 +49,8 @@ class TileCoding:
             ret = np.array([np.max(np.argwhere(self._M[i] <= x_i)) for i, x_i in enumerate(x)])
             return self._one_number(ret)
         else:
-            ret = np.array([arg_where(self._M[i], x_i) for i, x_i in enumerate(x.T)]).T
+            try:
+                ret = np.array([arg_where(self._M[i], x_i) for i, x_i in enumerate(x.T)]).T
+            except:
+                print("whatever")
             return self._one_number(ret)

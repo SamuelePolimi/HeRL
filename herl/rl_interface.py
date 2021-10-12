@@ -450,14 +450,14 @@ class RLAgent:
 
 
     def get_actions(self, states: np.ndarray) -> np.ndarray:
-        if type(state) is not np.ndarray:
+        if type(states) is not np.ndarray:
             raise Exception("States must be a np vector.")
-        if len(state.shape) != 2 or states.shape[1] != self._state_dim:
+        if len(states.shape) != 2 or states.shape[1] != self._state_dim:
             raise Exception("States must be of shape (n xd_s) d_s is the dimension of the state-space.")
 
-        state_t = torch.tensor(state)
+        states_t = torch.tensor(states)
 
-        return a.detach().numpy()
+        return self(states_t).detach().numpy()
 
     def _precondition_state(self, states: torch.Tensor) -> torch.Tensor:
         if type(states) is not torch.Tensor:
