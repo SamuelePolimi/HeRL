@@ -199,6 +199,23 @@ class Dataset(DictSerializable):
         result = self.memory[indx, :]
         return {k: result[:, v.location:v.location+v.length] for k, v in self.domain.variable_dict.items()}
 
+    def get_minibatch_sampling_strategy(self, sampling_variable:str, size: int=128):
+        """
+        Retrive a random (mini)batch of data.
+        :param size: The size of the batch (which should be less than the data already inserted in the database)
+        :type size: int
+        :return: Dataset batch
+        :rtype: dict
+        """
+        if size > self.real_size:
+            raise("You are requesting more samples than the samples stored")
+        variable = self.domain.variable_dict[sampling_variable]
+        weights = self.memory[self.indexes[:self.real_size], variable.location:variable.location + variable.length]
+        weights = weights.ravel()
+        indx = np.random.choice(self.indexes[:self.real_size], size=size, replace=True, p=weights/np.sum(weights))
+        result = self.memory[indx, :]
+        return {k: result[:, v.location:v.location+v.length] for k, v in self.domain.variable_dict.items()}
+
     def set(self, memory: np.ndarray):
         if memory.shape[1] != self.domain.size:
             raise("Wrong format!")
