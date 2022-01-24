@@ -182,6 +182,13 @@ class NeuralNetwork(nn.Module, RLParametricModel):
             state_dict[name].copy_(torch.tensor(values[i:i+n], dtype=torch_type).reshape(shape))
             i+=n
 
+    def get_torch_parameters(self):
+        params = []
+        for param in self.parameters():
+            params.append(param.view(-1))
+
+        return torch.cat(params)
+
     def get_gradient(self):
         grads = []
         for param in self.parameters():
@@ -194,7 +201,7 @@ class NeuralNetworkPolicy(NeuralNetwork, RLAgent):
 
     def __init__(self, rl_environment_descriptor: RLEnvironmentDescriptor,
                  h_layers: List[int], act_functions: List[Callable], output_function=None):
-        RLAgent.__init__(self, deterministic=True)
+        RLAgent.__init__(self, rl_environment_descriptor, deterministic=True)
         NeuralNetwork.__init__(self,
                                [rl_environment_descriptor.state_dim],
                                h_layers + [rl_environment_descriptor.action_dim],
@@ -255,7 +262,10 @@ class FixedGaussianNeuralNetworkPolicy(NeuralNetwork, RLAgent):
         self._output_function = output_function
 
     def get_action(self, state):
-        return NeuralNetwork.__call__(self, torch.tensor(state, dtype=torch_type), differentiable=True).detach().numpy()
+        if len(state.shape)==2:
+            return self.__call__(torch.tensor(state), differentiable=True).detach().numpy()
+
+        return self.__call__(torch.tensor(state).unsqueeze(0), differentiable=True).squeeze(0).detach().numpy()
 
     def __call__(self, *args, differentiable=False):
         states = args[0]
@@ -266,7 +276,7 @@ class FixedGaussianNeuralNetworkPolicy(NeuralNetwork, RLAgent):
         if self._output_function is not None:
             return self._output_function(NeuralNetwork.__call__(self, args[0], differentiable=True) + noise)
         else:
-            return NeuralNetwork.__call__(self, args[0], differentiable=True)
+            return NeuralNetwork.__call__(self, args[0], differentiable=True) + noise
 
 
     def get_prob(self, state: Union[np.ndarray, torch.Tensor],
@@ -487,7 +497,7 @@ class TabularPolicy(RLAgent, nn.Module, RLParametricModel):
         s, a = self._precondition_state(state), self._precondition_actions(action)
 
         prob = nn.Module.__call__(self, s.view(-1))
-        return prob.gather(-1, a)
+        return prob.gather(-1, a.type(torch.int64))
 
 
     def get_log_prob(self, state: torch.Tensor,

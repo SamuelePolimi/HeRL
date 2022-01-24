@@ -10,8 +10,8 @@ from herl.rl_interface import RLEnvironment, StochasticState
 from herl.utils import _one_hot, _decode_one_hot
 
 def env_from_gym(gym_env):
-    return RLEnvironment(gym_env.observation_space.shape[0],
-                         gym_env.action_space.shape[0],
+    return RLEnvironment(gym_env.observation_space, #.shape[0],
+                         gym_env.action_space, #.shape[0],
                          gym_env)
 
 
