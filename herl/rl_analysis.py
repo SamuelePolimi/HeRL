@@ -318,8 +318,10 @@ class MDPAnalyzer:
 
             T = 0.
             for a in self._mdp.get_actions():
-                T += torch.tensor(self._P[a, s]) * self._get_action_prob(s, a,
-                                                                        differentiable=True)
+                try:
+                    T += torch.tensor(self._P[a, s]) * self._get_action_prob(s, a, differentiable=True)
+                except:
+                    T += torch.tensor(self._P[a, s]) * self._get_action_prob(s, a)
 
             P[s, :] = T
 

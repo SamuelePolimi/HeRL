@@ -132,9 +132,9 @@ class NeuralNetwork(nn.Module, RLParametricModel):
         # TODO: temporary solution len(args)
         if differentiable:
             if len(args) > 1:
-                return nn.Module.__call__(self, torch.cat(args, 1))
+                return nn.Module.__call__(self, torch.cat(args, 1).double())
             else:
-                return nn.Module.__call__(self, args[0])
+                return nn.Module.__call__(self, args[0].double())
         else:
             with torch.no_grad():
                 if len(args) > 1:
@@ -161,13 +161,16 @@ class NeuralNetwork(nn.Module, RLParametricModel):
         """
         self.load_state_dict(torch.load(path))
 
-    def get_parameters(self):
+    def get_parameters(self, subset=None):
         state_dict = self.state_dict()
 
         params = []
         for name, param in state_dict.items():
             # Transform the parameter as required.
-            params.append(param.numpy().ravel())
+            if subset is None:
+                params.append(param.numpy().ravel())
+            elif name in subset:
+                params.append(param.numpy().ravel())
 
         return np.concatenate(params)
 
@@ -182,17 +185,27 @@ class NeuralNetwork(nn.Module, RLParametricModel):
             state_dict[name].copy_(torch.tensor(values[i:i+n], dtype=torch_type).reshape(shape))
             i+=n
 
-    def get_torch_parameters(self):
+    def get_torch_parameters(self, numerical_position=None):
         params = []
+        i = 0
         for param in self.parameters():
-            params.append(param.view(-1))
+            if numerical_position is None:
+                params.append(param.view(-1))
+            elif i in numerical_position:
+                params.append(param.view(-1))
+            i += 1
 
         return torch.cat(params)
 
-    def get_gradient(self):
+    def get_gradient(self, numerical_position=None):
         grads = []
+        i = 0
         for param in self.parameters():
-            grads.append(param.grad.detach().numpy().ravel())
+            if numerical_position is None:
+                grads.append(param.grad.detach().numpy().ravel())
+            elif i in numerical_position:
+                grads.append(param.grad.detach().numpy().ravel())
+            i += 1
 
         return np.concatenate(grads)
 
@@ -214,14 +227,14 @@ class NeuralNetworkPolicy(NeuralNetwork, RLAgent):
 class SoftMaxNeuralNetworkPolicy(NeuralNetwork, RLAgent):
 
     def __init__(self, rl_environment_descriptor: RLEnvironmentDescriptor,
-                 h_layers: List[int], act_functions: List[Callable], output_function=None):
+                 h_layers: List[int], act_functions: List[Callable], n_actions, output_function=None):
         # TODO: currently works only with one hot encoding
-        RLAgent.__init__(self, deterministic=True)
+        RLAgent.__init__(self, rl_environment_descriptor, deterministic=True)
         NeuralNetwork.__init__(self,
                                [rl_environment_descriptor.state_dim],
-                               h_layers + [rl_environment_descriptor.action_dim],
+                               h_layers + [n_actions],
                                act_functions, output_function)
-        self._n_classes = rl_environment_descriptor.action_dim
+        self._n_classes = n_actions
 
     def get_vector_probabilities(self, state, differentiable=False):
         net_input = state
@@ -238,13 +251,13 @@ class SoftMaxNeuralNetworkPolicy(NeuralNetwork, RLAgent):
 
     def get_prob(self, state: Union[np.ndarray, torch.Tensor],
                  action: Union[np.ndarray, torch.Tensor], differentiable: bool=False) -> Union[np.ndarray, torch.Tensor]:
-        p = self.get_vector_probabilities(state, differentiable=differentiable)
-        a_index = _decode_one_hot(action)
-        return p[a_index]
+        # TODO: currently works only with single state and action pairs
+        p = self.get_vector_probabilities(state.reshape(1), differentiable=differentiable)
+        return p[action.squeeze().int()]
 
     def get_action(self, state):
         p = self.get_vector_probabilities(state, differentiable=False)
-        return _one_hot(np.random.choice(range(len(p)), p=p), self._n_classes)
+        return np.random.choice(range(len(p)), p=p)
 
 
 
