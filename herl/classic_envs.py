@@ -219,11 +219,13 @@ class ImaniFeatures(MDPFeatureInterface):
 
 def get_random_mdp_core(n_states, n_actions, temperature=10.):
     P = np.random.uniform(size=(n_actions, n_states, n_states))
-    R = np.random.uniform(size=(n_actions, n_states))
+    R = np.random.uniform(size=n_actions * n_states)
 
     for a in range(n_actions):
         for s in range(n_states):
             P[a, s] = np.exp(temperature * P[a, s])/np.sum(np.exp(temperature * P[a, s]))
+
+    R = (np.exp(temperature * R) / np.sum(np.exp(temperature * R))).reshape(n_actions, n_states)
 
     mu_0 = np.random.uniform(size=(n_states))
     mu_0 = mu_0/np.sum(mu_0)
@@ -265,7 +267,7 @@ def get_imani_mdp():
 
 class MDPCore:
 
-    def __init__(self, P, R, mu_0):
+    def __init__(self, P, R, mu_0, noisy_reward=0.1):
 
         if P.shape[0] != R.shape[0]:
             raise Exception("P.shape[0] must be equal to R.shape[0]")
@@ -285,6 +287,8 @@ class MDPCore:
 
         self._P = P
         self._r = R
+
+        self._noisy_reward = noisy_reward
 
         self._mu_0 = mu_0
 
@@ -307,7 +311,7 @@ class MDPCore:
         a_ravel = np.asscalar(a)
         previous_state = np.asscalar(self._current_state)
         p = self._P[a_ravel, previous_state]
-        r = self._r[a_ravel, previous_state]
+        r = self._r[a_ravel, previous_state] + np.random.normal() * self._noisy_reward
         self._current_state = np.random.choice(range(self._n_states), p=p, size=1)
         return self._current_state, r, False, None
 
