@@ -217,13 +217,13 @@ class ImaniFeatures(MDPFeatureInterface):
         return action
 
 
-def get_random_mdp_core(n_states, n_actions):
+def get_random_mdp_core(n_states, n_actions, temperature=10.):
     P = np.random.uniform(size=(n_actions, n_states, n_states))
     R = np.random.uniform(size=(n_actions, n_states))
 
     for a in range(n_actions):
         for s in range(n_states):
-            P[a, s] = P[a, s]/np.sum(P[a, s])
+            P[a, s] = np.exp(temperature * P[a, s])/np.sum(np.exp(temperature * P[a, s]))
 
     mu_0 = np.random.uniform(size=(n_states))
     mu_0 = mu_0/np.sum(mu_0)
