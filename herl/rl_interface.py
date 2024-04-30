@@ -384,7 +384,7 @@ class RLTask:
 
 class RLAgent:
 
-    def __init__(self, env_descriptor:RLEnvironmentDescriptor, deterministic: bool = False, symbol: str = r"\pi"):
+    def __init__(self, env_descriptor: RLEnvironmentDescriptor, deterministic: bool = False, symbol: str = r"\pi"):
         """
         Defines an agent interactin in a RLEnvironment
         :param deterministic: If the agent is deterministic, it will always perform the same action given the same state.

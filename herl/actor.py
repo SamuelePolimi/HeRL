@@ -347,15 +347,15 @@ class UniformPolicy(RLAgent):
 
 class LinearPolicy(NeuralNetwork, RLAgent):
 
-    def __init__(self, inputSize, outputSize, diagonal=False, device=None):
+    def __init__(self, env_descriptor: RLEnvironmentDescriptor, diagonal=False, device=None):
         nn.Module.__init__(self)
-        RLAgent.__init__(self, deterministic=True)
+        RLAgent.__init__(self, env_descriptor, deterministic=True)
         self._diagonal = diagonal
         self.device = device
         if diagonal:
-            self.linear = DiagonalLinear(inputSize, outputSize, bias=False).to(dtype=torch_type)
+            self.linear = DiagonalLinear(env_descriptor.state_dim, env_descriptor.action_dim, bias=False).to(dtype=torch_type)
         else:
-            self.linear = torch.nn.Linear(inputSize, outputSize, bias=False).to(dtype=torch_type)
+            self.linear = torch.nn.Linear(env_descriptor.state_dim, env_descriptor.action_dim, bias=False).to(dtype=torch_type)
 
     def is_diagonal(self):
         return self._diagonal
@@ -367,12 +367,12 @@ class LinearPolicy(NeuralNetwork, RLAgent):
 
 class LinearGaussianPolicy(LinearPolicy):
 
-    def __init__(self, inputSize, outputSize, covariance, diagonal=False, device=None):
-        LinearPolicy.__init__(self, inputSize, outputSize, diagonal, device=device)
+    def __init__(self, env_descriptor: RLEnvironmentDescriptor, covariance, diagonal=False, device=None):
+        LinearPolicy.__init__(self, env_descriptor, diagonal, device=device)
         if diagonal:
-            self.linear = DiagonalLinear(inputSize, outputSize, bias=False).to(dtype=torch_type)
+            self.linear = DiagonalLinear(env_descriptor.state_dim, env_descriptor.action_dim, bias=False).to(dtype=torch_type)
         else:
-            self.linear = torch.nn.Linear(inputSize, outputSize, bias=False).to(dtype=torch_type)
+            self.linear = torch.nn.Linear(env_descriptor.state_dim, env_descriptor.action_dim, bias=False).to(dtype=torch_type)
         self._cov = covariance
         self._a_dim = covariance.shape[0]
 
