@@ -158,7 +158,10 @@ class LQRAnalyzer(Critic, PolicyGradient, Online):
         self._gamma = rl_task.get_descriptor().gamma
         self.lqr = rl_task.environment
         self._deterministic = self.policy.is_deterministic()
-        self.K = np.diag(self.policy.linear._parameters['weight'].detach().numpy())
+        if policy.is_diagonal():
+            self.K = np.diag(self.policy.linear._parameters['weight'].detach().numpy())
+        else:
+            self.K = self.policy.linear._parameters['weight'].detach().numpy()
 
     def get_V(self, state: np.ndarray) -> np.ndarray:
         if self._deterministic:
@@ -207,9 +210,10 @@ lqr = LQR(A=np.array([[1.2, 0.],
 
 # initial_state = DeterministicState(np.array([-1., -1.]))
 # rl_task = RLTask(lqr, initial_state, gamma=0.9, max_episode_length=100)
-# policy = LinearGaussianPolicy(lqr.get_descriptor(), covariance=0.00000001*np.eye(2), diagonal=True)
-# policy.set_parameters(np.array([-1.1104430687690852, -1.3649958298432607]))
-# print(check_statbility(lqr._A, lqr._B, np.diag(np.array([-1.1104430687690852, -1.3649958298432607]))))
+# policy = LinearGaussianPolicy(lqr.get_descriptor(), covariance=0.00000001*np.eye(2), diagonal=False)
+# parameters = np.array([[-1.1104430687690852, 0.], [0., -1.3649958298432607]])
+# policy.set_parameters(parameters)
+# print(check_statbility(lqr._A, lqr._B, parameters))
 # analyzer = LQRAnalyzer(rl_task, policy)
 # print(analyzer.get_gradient())
 #
