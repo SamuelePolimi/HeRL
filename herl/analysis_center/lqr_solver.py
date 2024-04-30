@@ -205,13 +205,13 @@ lqr = LQR(A=np.array([[1.2, 0.],
           state_box=np.array([2., 2.]),
           action_box=np.array([2., 2.]))
 
-initial_state = DeterministicState(np.array([-1., -1.]))
-rl_task = RLTask(lqr, initial_state, gamma=0.9, max_episode_length=100)
-policy = LinearGaussianPolicy(lqr.get_descriptor(), covariance=0.00000001*np.eye(2), diagonal=True)
-policy.set_parameters(np.array([-1.1104430687690852, -1.3649958298432607]))
-print(check_statbility(lqr._A, lqr._B, np.diag(np.array([-1.1104430687690852, -1.3649958298432607]))))
-analyzer = LQRAnalyzer(rl_task, policy)
-print(analyzer.get_gradient())
+# initial_state = DeterministicState(np.array([-1., -1.]))
+# rl_task = RLTask(lqr, initial_state, gamma=0.9, max_episode_length=100)
+# policy = LinearGaussianPolicy(lqr.get_descriptor(), covariance=0.00000001*np.eye(2), diagonal=True)
+# policy.set_parameters(np.array([-1.1104430687690852, -1.3649958298432607]))
+# print(check_statbility(lqr._A, lqr._B, np.diag(np.array([-1.1104430687690852, -1.3649958298432607]))))
+# analyzer = LQRAnalyzer(rl_task, policy)
+# print(analyzer.get_gradient())
 #
 # # visualizer = ValueFunctionVisualizer()
 # # visualizer.compute(rl_task.environment.get_descriptor(), analyzer, [50, 50])
